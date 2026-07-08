@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Str;
 use RoundlyConsulting\Jwt\Events\UserTokenIssued;
+use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
 use RoundlyConsulting\Jwt\Jose\Algorithm;
 use RoundlyConsulting\Jwt\Jose\Encoder;
 use RoundlyConsulting\Jwt\Support\KeyRepository;
@@ -32,7 +33,17 @@ final class NativeUserTokenIssuer implements UserTokenIssuer
         private readonly int $verifyTtl,
         private readonly ?string $kid = null,
         private readonly ?Dispatcher $events = null,
-    ) {}
+    ) {
+        // Never mint a token with an empty identity pin — verifiers elsewhere
+        // would be comparing against ''.
+        if ($this->issuer === '') {
+            throw JwtMisconfigured::missingIssuer();
+        }
+
+        if ($this->audience === '') {
+            throw JwtMisconfigured::missingAudience();
+        }
+    }
 
     public function mint(string $subject, string $scope, int $ttl, array $extraClaims = []): IssuedToken
     {

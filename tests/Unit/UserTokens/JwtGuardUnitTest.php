@@ -66,8 +66,7 @@ it('resolves, caches and exposes the payload for a valid token', function (): vo
     expect($user)->toBeInstanceOf(TokenUser::class)
         ->and($guard->user())->toBe($user)
         ->and($guard->check())->toBeTrue()
-        ->and($guard->payload())->not->toBeNull()
-        ->and(JwtGuard::active()?->string('sub'))->toBe('user-1');
+        ->and($guard->payload()?->string('sub'))->toBe('user-1');
 });
 
 it('returns no user for a bad token', function (): void {

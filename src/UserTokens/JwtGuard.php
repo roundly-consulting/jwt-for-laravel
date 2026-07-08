@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
 use RoundlyConsulting\Jwt\Jose\Claims;
 use RoundlyConsulting\Jwt\Jose\Exceptions\JwtException;
+use RoundlyConsulting\Jwt\Jose\Exceptions\KeyLoadFailed;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\ClaimsAuthenticatable;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
 
@@ -21,9 +22,11 @@ use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
  *
  * Pipeline: bearer → verify (RS256 + pinned iss/aud) → required scope →
  * denylist → identity (Eloquent provider when set, else the claims-mode
- * identity class) → optional `token_version` freshness. Any failure yields a
- * null user (a 401 at the HTTP layer). The claims are re-resolved whenever the
- * bound request instance changes.
+ * identity class) → optional `token_version` freshness. Any token failure
+ * yields a null user (a 401 at the HTTP layer); a {@see KeyLoadFailed}
+ * (missing/invalid key) is rethrown so an operator error surfaces as a 500,
+ * never a silent 401. The claims are re-resolved whenever the bound request
+ * instance changes.
  */
 final class JwtGuard implements Guard
 {
@@ -32,8 +35,6 @@ final class JwtGuard implements Guard
     private ?Claims $payload = null;
 
     private ?Request $resolvedFor = null;
-
-    private static ?Claims $active = null;
 
     /**
      * @param  class-string<ClaimsAuthenticatable>  $identityClass
@@ -60,7 +61,6 @@ final class JwtGuard implements Guard
 
         $this->user = null;
         $this->payload = null;
-        self::$active = null;
         $this->resolvedFor = $this->request;
 
         $token = $this->request->bearerToken();
@@ -69,42 +69,21 @@ final class JwtGuard implements Guard
             return null;
         }
 
-        try {
-            $claims = $this->verifier->verify($token);
-        } catch (JwtException) {
+        $resolved = $this->resolve($token);
+
+        if ($resolved === null) {
             return null;
         }
 
-        if ($claims->get('scope') !== $this->requiredScope) {
-            return null;
-        }
+        [$this->user, $this->payload] = $resolved;
 
-        if ($this->checkDenylist) {
-            $jti = $claims->get('jti');
-
-            if (is_string($jti) && $this->denylist->has($jti)) {
-                return null;
-            }
-        }
-
-        $user = $this->resolveIdentity($claims);
-
-        if ($user === null) {
-            return null;
-        }
-
-        if (! $this->tokenVersionMatches($claims, $user)) {
-            return null;
-        }
-
-        $this->user = $user;
-        $this->payload = $claims;
-        self::$active = $claims;
-
-        return $user;
+        return $this->user;
     }
 
     /**
+     * Runs the full authentication pipeline, so a denylisted, wrong-scope or
+     * stale-version token never validates.
+     *
      * @param  array<string, mixed>  $credentials
      */
     public function validate(array $credentials = []): bool
@@ -115,13 +94,7 @@ final class JwtGuard implements Guard
             return false;
         }
 
-        try {
-            $this->verifier->verify($token);
-
-            return true;
-        } catch (JwtException) {
-            return false;
-        }
+        return $this->resolve($token) !== null;
     }
 
     public function setRequest(Request $request): self
@@ -140,11 +113,40 @@ final class JwtGuard implements Guard
     }
 
     /**
-     * The claims of the most recently authenticated request in this process.
+     * @return array{0: Authenticatable, 1: Claims}|null
      */
-    public static function active(): ?Claims
+    private function resolve(string $token): ?array
     {
-        return self::$active;
+        try {
+            $claims = $this->verifier->verify($token);
+
+            if ($claims->get('scope') !== $this->requiredScope) {
+                return null;
+            }
+
+            if ($this->checkDenylist) {
+                $jti = $claims->get('jti');
+
+                if (is_string($jti) && $this->denylist->has($jti)) {
+                    return null;
+                }
+            }
+
+            $user = $this->resolveIdentity($claims);
+
+            if ($user === null || ! $this->tokenVersionMatches($claims, $user)) {
+                return null;
+            }
+
+            return [$user, $claims];
+        } catch (KeyLoadFailed $e) {
+            // Operator error — never masquerade as an unauthenticated caller.
+            throw $e;
+        } catch (JwtException) {
+            // Covers verification failures and mistyped claims (`tv`,
+            // `permissions`) in otherwise validly signed tokens.
+            return null;
+        }
     }
 
     private function resolveIdentity(Claims $claims): ?Authenticatable

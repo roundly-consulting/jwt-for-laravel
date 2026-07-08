@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Jwt\UserTokens;
 
+use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
 use RoundlyConsulting\Jwt\Jose\Algorithm;
 use RoundlyConsulting\Jwt\Jose\Claims;
 use RoundlyConsulting\Jwt\Jose\Decoder;
@@ -27,7 +28,17 @@ final class NativeUserTokenVerifier implements UserTokenVerifier
         private readonly string $issuer,
         private readonly string $audience,
         private readonly int $leeway,
-    ) {}
+    ) {
+        // An empty pin would verify vacuously against tokens minted with the
+        // same unset config — fail fast instead.
+        if ($this->issuer === '') {
+            throw JwtMisconfigured::missingIssuer();
+        }
+
+        if ($this->audience === '') {
+            throw JwtMisconfigured::missingAudience();
+        }
+    }
 
     public function verify(string $jwt): Claims
     {

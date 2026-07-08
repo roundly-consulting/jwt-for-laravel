@@ -3,11 +3,14 @@
 declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
+use RoundlyConsulting\Jwt\Support\KeyRepository;
 use RoundlyConsulting\Jwt\Tests\Fixtures\User;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenIssuer;
+use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
 
 beforeEach(function (): void {
     CarbonImmutable::setTestNow(CarbonImmutable::createFromTimestamp(1_700_000_000));
@@ -89,6 +92,40 @@ it('rejects a missing token version when a callback is configured', function ():
     config(['jwt.guard.token_version' => fn () => 5]);
 
     $this->withToken(mint('access'))->getJson('/protected')->assertUnauthorized();
+});
+
+it('rejects a signed token whose tv claim is mistyped, as a 401 not a 500', function (): void {
+    config(['jwt.guard.token_version' => fn () => 5]);
+
+    $this->withToken(mint('access', ['tv' => 'not-an-int']))->getJson('/protected')->assertUnauthorized();
+});
+
+it('rejects a signed token with a malformed permissions claim, as a 401 not a 500', function (): void {
+    $this->withToken(mint('access', ['permissions' => ['posts.view', 42]]))
+        ->getJson('/protected')
+        ->assertUnauthorized();
+});
+
+it('surfaces a missing public key as a 500, not a silent 401', function (): void {
+    $token = mint();
+
+    config(['jwt.public_key_path' => fixturesDir().'/keys/does-not-exist.pem']);
+    app()->forgetInstance(UserTokenVerifier::class);
+    app()->forgetInstance(KeyRepository::class);
+    Auth::forgetGuards();
+
+    $this->withToken($token)->getJson('/protected')->assertStatus(500);
+});
+
+it('does not validate a denylisted or wrong-scope token', function (): void {
+    $issued = app(UserTokenIssuer::class)->mint('user-1', 'access', 900);
+    app(Denylist::class)->deny($issued->jti, CarbonImmutable::now()->addSeconds(900));
+
+    $guard = Auth::guard('api');
+
+    expect($guard->validate(['token' => $issued->token]))->toBeFalse()
+        ->and($guard->validate(['token' => mint('email_verify')]))->toBeFalse()
+        ->and($guard->validate(['token' => mint()]))->toBeTrue();
 });
 
 it('resolves a database user in provider mode and enforces token version', function (): void {

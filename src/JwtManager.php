@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Jwt;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Auth\Factory as AuthFactory;
+use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
@@ -114,10 +116,31 @@ final class JwtManager
 
     /**
      * The verified claims of the current request, or null when unauthenticated.
+     *
+     * Resolved through the auth manager's per-request `jwt` guard(s) — never
+     * static state — so long-lived workers (Octane, queues) can't leak one
+     * request's claims into the next.
      */
     public function claims(): ?Claims
     {
-        return JwtGuard::active();
+        $auth = $this->container->make(AuthFactory::class);
+
+        /** @var array<string, array<string, mixed>> $guards */
+        $guards = (array) $this->container->make(ConfigRepository::class)->get('auth.guards', []);
+
+        foreach ($guards as $name => $config) {
+            if (($config['driver'] ?? null) !== 'jwt') {
+                continue;
+            }
+
+            $guard = $auth->guard($name);
+
+            if ($guard instanceof JwtGuard && $guard->user() !== null) {
+                return $guard->payload();
+            }
+        }
+
+        return null;
     }
 
     private function issuer(): UserTokenIssuer
