@@ -24,7 +24,7 @@ beforeEach(function (): void {
         'jwt.public_key_path' => fixturesDir().'/keys/jwt-public.pem',
         'jwt.leeway' => 0,
         'jwt.denylist.store' => 'array',
-        'jwt.service.secret' => 'a-very-secret-service-key',
+        'jwt.service.secret' => 'a-very-secret-service-key-0123456789',
         'jwt.service.issuer' => 'web',
         'app.service' => 'web',
     ]);

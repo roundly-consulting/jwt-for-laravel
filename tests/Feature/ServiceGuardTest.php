@@ -12,7 +12,7 @@ beforeEach(function (): void {
 
     config([
         'app.service' => 'auth',
-        'jwt.service.secret' => 'shared-service-secret',
+        'jwt.service.secret' => 'shared-service-secret-0123456789ab',
         'jwt.service.issuer' => 'logger',
         'jwt.service.audience' => 'auth',
         'jwt.leeway' => 0,

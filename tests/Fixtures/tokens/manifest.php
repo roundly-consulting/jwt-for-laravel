@@ -17,7 +17,7 @@ declare(strict_types=1);
  * HS256 token with the secret below.
  */
 return [
-    'hmac_secret' => 'static-parity-service-secret',
+    'hmac_secret' => 'static-parity-service-secret-0123456789',
 
     'tokens' => [
         'valid_access.jwt' => [

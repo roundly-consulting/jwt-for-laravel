@@ -47,7 +47,7 @@ function rsaPublicKey(): RsaPublicKey
     return RsaPublicKey::fromPem(publicKeyPem());
 }
 
-function hmacSecret(string $value = 'test-hmac-secret-value'): HmacSecret
+function hmacSecret(string $value = 'test-hmac-secret-value-0123456789ab'): HmacSecret
 {
     return new HmacSecret($value);
 }
