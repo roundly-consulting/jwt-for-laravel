@@ -14,7 +14,7 @@ beforeEach(function (): void {
 
     config([
         'jwt.issuer' => 'jwt-issuer',
-        'jwt.audience' => 'cosmos-web',
+        'jwt.audience' => 'web',
         'jwt.private_key_path' => fixturesDir().'/keys/jwt-private.pem',
         'jwt.public_key_path' => fixturesDir().'/keys/jwt-public.pem',
         'jwt.leeway' => 0,

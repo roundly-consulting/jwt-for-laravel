@@ -20,14 +20,14 @@ beforeEach(function (): void {
 
     config([
         'jwt.issuer' => 'jwt-issuer',
-        'jwt.audience' => 'cosmos-web',
+        'jwt.audience' => 'web',
         'jwt.private_key_path' => fixturesDir().'/keys/jwt-private.pem',
         'jwt.public_key_path' => fixturesDir().'/keys/jwt-public.pem',
         'jwt.leeway' => 0,
         'jwt.denylist.store' => 'array',
         'jwt.service.secret' => 'a-very-secret-service-key',
-        'jwt.service.issuer' => 'cosmos-web',
-        'app.service' => 'cosmos-web',
+        'jwt.service.issuer' => 'web',
+        'app.service' => 'web',
         'auth.guards.api' => ['driver' => 'jwt'],
     ]);
 

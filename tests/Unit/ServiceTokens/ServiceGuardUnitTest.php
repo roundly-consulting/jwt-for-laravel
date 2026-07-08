@@ -17,7 +17,7 @@ function fakeServiceVerifier(): ServiceTokenVerifier
         public function verify(string $jwt): Claims
         {
             return match ($jwt) {
-                'good' => new Claims(['iss' => 'cosmos-logger', 'scope' => 'service']),
+                'good' => new Claims(['iss' => 'logger', 'scope' => 'service']),
                 'misconfigured' => throw ServiceAuthMisconfigured::missingSecret(),
                 default => throw new InvalidSignature('bad token'),
             };
@@ -44,7 +44,7 @@ it('authenticates a valid service token and exposes the payload', function (): v
     expect($user)->toBeInstanceOf(ServiceIdentity::class)
         ->and($guard->user())->toBe($user)
         ->and($guard->payload())->not->toBeNull()
-        ->and($user->getAuthIdentifier())->toBe('cosmos-logger');
+        ->and($user->getAuthIdentifier())->toBe('logger');
 });
 
 it('returns no user without a token', function (): void {

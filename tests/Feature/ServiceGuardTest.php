@@ -11,14 +11,14 @@ beforeEach(function (): void {
     CarbonImmutable::setTestNow(CarbonImmutable::createFromTimestamp(1_700_000_000));
 
     config([
-        'app.service' => 'cosmos-auth',
+        'app.service' => 'auth',
         'jwt.service.secret' => 'shared-service-secret',
-        'jwt.service.issuer' => 'cosmos-logger',
-        'jwt.service.audience' => 'cosmos-auth',
+        'jwt.service.issuer' => 'logger',
+        'jwt.service.audience' => 'auth',
         'jwt.leeway' => 0,
         // For minting the cross-family (user) token used in a negative test.
         'jwt.issuer' => 'jwt-issuer',
-        'jwt.audience' => 'cosmos-web',
+        'jwt.audience' => 'web',
         'jwt.private_key_path' => fixturesDir().'/keys/jwt-private.pem',
         'jwt.public_key_path' => fixturesDir().'/keys/jwt-public.pem',
         'auth.guards.service' => ['driver' => 'service-jwt'],
@@ -34,11 +34,11 @@ afterEach(function (): void {
 });
 
 it('authenticates a valid service token', function (): void {
-    $token = app(ServiceTokenIssuer::class)->issue('cosmos-auth')->token;
+    $token = app(ServiceTokenIssuer::class)->issue('auth')->token;
 
     $this->withToken($token)->getJson('/internal')
         ->assertOk()
-        ->assertJson(['iss' => 'cosmos-logger']);
+        ->assertJson(['iss' => 'logger']);
 });
 
 it('rejects a request with no token', function (): void {

@@ -22,10 +22,10 @@ function keys(): KeyRepository
 
 function issuer(): NativeUserTokenIssuer
 {
-    return new NativeUserTokenIssuer(new Encoder, keys(), 'jwt-issuer', 'cosmos-web', 900, 300, 3600);
+    return new NativeUserTokenIssuer(new Encoder, keys(), 'jwt-issuer', 'web', 900, 300, 3600);
 }
 
-function verifier(string $issuerName = 'jwt-issuer', string $audience = 'cosmos-web'): NativeUserTokenVerifier
+function verifier(string $issuerName = 'jwt-issuer', string $audience = 'web'): NativeUserTokenVerifier
 {
     return new NativeUserTokenVerifier(new Decoder, keys(), $issuerName, $audience, 0);
 }
@@ -44,7 +44,7 @@ it('mints a token with the full registered claim set', function (): void {
     $claims = verifier()->verify($issued->token);
 
     expect($claims->string('iss'))->toBe('jwt-issuer')
-        ->and($claims->string('aud'))->toBe('cosmos-web')
+        ->and($claims->string('aud'))->toBe('web')
         ->and($claims->string('sub'))->toBe('user-1')
         ->and($claims->string('scope'))->toBe('access')
         ->and($claims->int('iat'))->toBe(1_700_000_000)

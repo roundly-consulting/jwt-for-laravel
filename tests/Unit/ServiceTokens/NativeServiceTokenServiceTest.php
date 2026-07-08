@@ -16,10 +16,10 @@ use RoundlyConsulting\Jwt\ServiceTokens\NativeServiceTokenService;
  */
 function serviceService(
     ?string $secret = 'service-secret',
-    string $issuer = 'cosmos-logger',
-    ?string $defaultAudience = 'cosmos-auth',
+    string $issuer = 'logger',
+    ?string $defaultAudience = 'auth',
     array $allowedIssuers = [],
-    string $serviceName = 'cosmos-auth',
+    string $serviceName = 'auth',
 ): NativeServiceTokenService {
     return new NativeServiceTokenService(
         new Encoder,
@@ -49,23 +49,23 @@ it('issues and verifies a service token', function (): void {
     $claims = $service->verify($issued->token);
 
     expect($claims->string('scope'))->toBe('service')
-        ->and($claims->string('iss'))->toBe('cosmos-logger')
-        ->and($claims->string('aud'))->toBe('cosmos-auth')
+        ->and($claims->string('iss'))->toBe('logger')
+        ->and($claims->string('aud'))->toBe('auth')
         ->and($issued->expiresAt->getTimestamp())->toBe(1_700_000_060);
 });
 
 it('honours an explicit audience over the default', function (): void {
-    $issued = serviceService()->issue('cosmos-billing');
+    $issued = serviceService()->issue('billing');
 
-    $target = serviceService(serviceName: 'cosmos-billing');
+    $target = serviceService(serviceName: 'billing');
 
-    expect($target->verify($issued->token)->string('aud'))->toBe('cosmos-billing');
+    expect($target->verify($issued->token)->string('aud'))->toBe('billing');
 });
 
 it('rejects a token addressed to another service', function (): void {
-    $issued = serviceService()->issue('cosmos-auth');
+    $issued = serviceService()->issue('auth');
 
-    serviceService(serviceName: 'cosmos-billing')->verify($issued->token);
+    serviceService(serviceName: 'billing')->verify($issued->token);
 })->throws(ClaimMismatch::class, 'audience');
 
 it('accepts any issuer when the allow-list is empty', function (): void {
@@ -77,14 +77,14 @@ it('accepts any issuer when the allow-list is empty', function (): void {
 it('enforces a non-empty issuer allow-list', function (): void {
     $issued = serviceService(issuer: 'intruder')->issue();
 
-    serviceService(allowedIssuers: ['cosmos-logger', 'cosmos-geo'])->verify($issued->token);
+    serviceService(allowedIssuers: ['logger', 'geo'])->verify($issued->token);
 })->throws(ClaimMismatch::class, 'allow-listed');
 
 it('accepts an allow-listed issuer', function (): void {
-    $issued = serviceService(issuer: 'cosmos-logger')->issue();
+    $issued = serviceService(issuer: 'logger')->issue();
 
-    expect(serviceService(allowedIssuers: ['cosmos-logger'])->verify($issued->token)->string('iss'))
-        ->toBe('cosmos-logger');
+    expect(serviceService(allowedIssuers: ['logger'])->verify($issued->token)->string('iss'))
+        ->toBe('logger');
 });
 
 it('raises a misconfiguration when issuing without a secret', function (): void {
@@ -99,8 +99,8 @@ it('rejects a token that is not scoped to service', function (): void {
     // Mint an HS256 token with the same secret but a different scope.
     $encoder = new Encoder;
     $token = $encoder->encode([
-        'iss' => 'cosmos-logger',
-        'aud' => 'cosmos-auth',
+        'iss' => 'logger',
+        'aud' => 'auth',
         'scope' => 'access',
         'exp' => 1_700_000_060,
     ], new HmacSecret('service-secret'), Algorithm::HS256);
@@ -111,7 +111,7 @@ it('rejects a token that is not scoped to service', function (): void {
 it('rejects a service token with an empty issuer', function (): void {
     $token = (new Encoder)->encode([
         'iss' => '',
-        'aud' => 'cosmos-auth',
+        'aud' => 'auth',
         'scope' => 'service',
         'exp' => 1_700_000_060,
     ], new HmacSecret('service-secret'), Algorithm::HS256);

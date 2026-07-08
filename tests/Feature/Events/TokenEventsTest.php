@@ -19,14 +19,14 @@ beforeEach(function (): void {
 
     config([
         'jwt.issuer' => 'jwt-issuer',
-        'jwt.audience' => 'cosmos-web',
+        'jwt.audience' => 'web',
         'jwt.private_key_path' => fixturesDir().'/keys/jwt-private.pem',
         'jwt.public_key_path' => fixturesDir().'/keys/jwt-public.pem',
         'jwt.leeway' => 0,
         'jwt.denylist.store' => 'array',
         'jwt.service.secret' => 'a-very-secret-service-key',
-        'jwt.service.issuer' => 'cosmos-web',
-        'app.service' => 'cosmos-web',
+        'jwt.service.issuer' => 'web',
+        'app.service' => 'web',
     ]);
 });
 
@@ -48,10 +48,10 @@ it('dispatches UserTokenIssued when a user token is minted', function (): void {
 it('dispatches ServiceTokenIssued when a service token is issued', function (): void {
     Event::fake();
 
-    $issued = app(ServiceTokenIssuer::class)->issue('cosmos-billing');
+    $issued = app(ServiceTokenIssuer::class)->issue('billing');
 
-    Event::assertDispatched(ServiceTokenIssued::class, fn (ServiceTokenIssued $e): bool => $e->issuer === 'cosmos-web'
-        && $e->audience === 'cosmos-billing'
+    Event::assertDispatched(ServiceTokenIssued::class, fn (ServiceTokenIssued $e): bool => $e->issuer === 'web'
+        && $e->audience === 'billing'
         && $e->jti === $issued->jti);
 });
 

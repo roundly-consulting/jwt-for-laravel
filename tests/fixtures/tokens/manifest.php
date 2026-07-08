@@ -28,7 +28,7 @@ return [
             'scope' => 'access',
             'claims' => [
                 'iss' => 'jwt-issuer',
-                'aud' => 'cosmos-web',
+                'aud' => 'web',
                 'sub' => 'user-1',
                 'iat' => 1700000000,
                 'nbf' => 1700000000,
@@ -50,7 +50,7 @@ return [
             'scope' => 'access',
             'claims' => [
                 'iss' => 'jwt-issuer',
-                'aud' => 'cosmos-web',
+                'aud' => 'web',
                 'sub' => 'user-1',
                 'iat' => 1700000000,
                 'nbf' => 1700000000,
@@ -68,7 +68,7 @@ return [
             'scope' => '2fa_pending',
             'claims' => [
                 'iss' => 'jwt-issuer',
-                'aud' => 'cosmos-web',
+                'aud' => 'web',
                 'sub' => 'user-1',
                 'iat' => 1700000000,
                 'nbf' => 1700000000,
@@ -85,8 +85,8 @@ return [
             'outcome' => 'valid',
             'scope' => 'service',
             'claims' => [
-                'iss' => 'cosmos-logger',
-                'aud' => 'cosmos-auth',
+                'iss' => 'logger',
+                'aud' => 'auth',
                 'iat' => 1700000000,
                 'nbf' => 1700000000,
                 'exp' => 1700000060,

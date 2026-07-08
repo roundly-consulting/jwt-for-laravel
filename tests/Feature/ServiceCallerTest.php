@@ -28,7 +28,7 @@ it('attaches a fresh service token to a new request', function (): void {
     Http::fake();
     $caller = new ServiceCaller(fakeIssuer());
 
-    $caller->request('cosmos-billing')->get('https://internal.test/ping');
+    $caller->request('billing')->get('https://internal.test/ping');
 
     Http::assertSent(fn ($request) => $request->hasHeader('Authorization', 'Bearer service.token.value'));
 });
