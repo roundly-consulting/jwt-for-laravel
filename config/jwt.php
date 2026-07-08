@@ -8,9 +8,8 @@ return [
     // ── User tokens (RS256) ──────────────────────────────────────────────
     'private_key_path' => env('JWT_PRIVATE_KEY_PATH'),   // nullable: verify-only apps omit it
     'public_key_path' => env('JWT_PUBLIC_KEY_PATH', storage_path('jwt-public.pem')),
-    'algo' => env('JWT_ALGO', 'RS256'),
-    'issuer' => env('JWT_ISSUER'),
-    'audience' => env('JWT_AUDIENCE'),
+    'issuer' => env('JWT_ISSUER'),                    // required: minting/verifying throws when empty
+    'audience' => env('JWT_AUDIENCE'),                // required: minting/verifying throws when empty
     'ttl' => (int) env('JWT_TTL', 900),               // access token seconds
     'challenge_ttl' => (int) env('JWT_CHALLENGE_TTL', 300), // 2fa_pending
     'verify_ttl' => (int) env('JWT_VERIFY_TTL', 3600),      // email_verify
@@ -33,9 +32,12 @@ return [
 
     // ── Service tokens (HS256) ──────────────────────────────────────────
     'service' => [
+        // Shared-secret mode: one ≥32-byte secret for the whole mesh
+        // (`openssl rand -base64 48`). Any holder can then claim any `iss`.
         'secret' => env('SERVICE_JWT_SECRET'),
-        'algo' => 'HS256',
-        'scope' => 'service',
+        // Per-issuer mode (recommended): "billing:<secret>,api:<secret>".
+        // Binds each `iss` to its own secret; overrides `secret` when set.
+        'secrets' => env('SERVICE_JWT_SECRETS'),
         'issuer' => env('JWT_SERVICE_ISSUER', env('APP_SERVICE')),
         'audience' => env('JWT_SERVICE_AUDIENCE'),
         'ttl' => (int) env('SERVICE_JWT_TTL', 60),

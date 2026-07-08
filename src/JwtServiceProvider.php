@@ -77,6 +77,7 @@ final class JwtServiceProvider extends ServiceProvider
             (string) config('app.service'),
             (int) config('jwt.leeway'),
             $this->dispatcher($app),
+            $this->secretMap(config('jwt.service.secrets')),
         ));
 
         $this->app->bind(ServiceTokenIssuer::class, NativeServiceTokenService::class);
@@ -194,6 +195,38 @@ final class JwtServiceProvider extends ServiceProvider
     private function nullableString(mixed $value): ?string
     {
         return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    /**
+     * Parses the `SERVICE_JWT_SECRETS` per-issuer map: a comma-separated list
+     * of `issuer:secret` pairs. Malformed pairs are dropped rather than half-
+     * parsed into a wrong issuer→secret binding.
+     *
+     * @return array<string, string>
+     */
+    private function secretMap(mixed $value): array
+    {
+        if (! is_string($value) || trim($value) === '') {
+            return [];
+        }
+
+        $map = [];
+
+        foreach (explode(',', $value) as $pair) {
+            $pair = trim($pair);
+
+            if ($pair === '' || ! str_contains($pair, ':')) {
+                continue;
+            }
+
+            [$issuer, $secret] = explode(':', $pair, 2);
+
+            if ($issuer !== '' && $secret !== '') {
+                $map[$issuer] = $secret;
+            }
+        }
+
+        return $map;
     }
 
     /**

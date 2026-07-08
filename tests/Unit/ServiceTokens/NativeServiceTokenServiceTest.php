@@ -7,19 +7,24 @@ use RoundlyConsulting\Jwt\Jose\Algorithm;
 use RoundlyConsulting\Jwt\Jose\Decoder;
 use RoundlyConsulting\Jwt\Jose\Encoder;
 use RoundlyConsulting\Jwt\Jose\Exceptions\ClaimMismatch;
+use RoundlyConsulting\Jwt\Jose\Exceptions\InvalidSignature;
 use RoundlyConsulting\Jwt\Jose\Keys\HmacSecret;
 use RoundlyConsulting\Jwt\ServiceTokens\Exceptions\ServiceAuthMisconfigured;
 use RoundlyConsulting\Jwt\ServiceTokens\NativeServiceTokenService;
 
+const SERVICE_SECRET = 'unit-test-service-secret-0123456789ab';
+
 /**
  * @param  list<string>  $allowedIssuers
+ * @param  array<string, string>  $secrets
  */
 function serviceService(
-    ?string $secret = 'service-secret',
+    ?string $secret = SERVICE_SECRET,
     string $issuer = 'logger',
     ?string $defaultAudience = 'auth',
     array $allowedIssuers = [],
     string $serviceName = 'auth',
+    array $secrets = [],
 ): NativeServiceTokenService {
     return new NativeServiceTokenService(
         new Encoder,
@@ -31,6 +36,8 @@ function serviceService(
         $allowedIssuers,
         $serviceName,
         0,
+        null,
+        $secrets,
     );
 }
 
@@ -103,7 +110,7 @@ it('rejects a token that is not scoped to service', function (): void {
         'aud' => 'auth',
         'scope' => 'access',
         'exp' => 1_700_000_060,
-    ], new HmacSecret('service-secret'), Algorithm::HS256);
+    ], new HmacSecret(SERVICE_SECRET), Algorithm::HS256);
 
     serviceService()->verify($token);
 })->throws(ClaimMismatch::class, 'scope');
@@ -114,7 +121,76 @@ it('rejects a service token with an empty issuer', function (): void {
         'aud' => 'auth',
         'scope' => 'service',
         'exp' => 1_700_000_060,
-    ], new HmacSecret('service-secret'), Algorithm::HS256);
+    ], new HmacSecret(SERVICE_SECRET), Algorithm::HS256);
 
     serviceService()->verify($token);
 })->throws(ClaimMismatch::class, 'issuer is missing');
+
+it('raises a misconfiguration for a too-short shared secret, never a 401', function (): void {
+    serviceService(secret: 'short')->issue();
+})->throws(ServiceAuthMisconfigured::class, 'at least 32 bytes');
+
+it('raises a misconfiguration when issuing without any audience', function (): void {
+    serviceService(defaultAudience: null)->issue();
+})->throws(ServiceAuthMisconfigured::class, 'audience');
+
+it('raises a misconfiguration when issuing with an empty issuer', function (): void {
+    serviceService(issuer: '')->issue();
+})->throws(ServiceAuthMisconfigured::class, 'JWT_SERVICE_ISSUER');
+
+it('raises a misconfiguration when verifying with no service name', function (): void {
+    serviceService(serviceName: '')->verify('a.b.c');
+})->throws(ServiceAuthMisconfigured::class, 'app.service');
+
+const ISSUER_SECRETS = [
+    'logger' => 'per-issuer-secret-for-logger-0123456789',
+    'geo' => 'per-issuer-secret-for-geo-0123456789abc',
+];
+
+it('issues and verifies with per-issuer secrets', function (): void {
+    $issued = serviceService(issuer: 'logger', secrets: ISSUER_SECRETS)->issue();
+
+    $claims = serviceService(secrets: ISSUER_SECRETS)->verify($issued->token);
+
+    expect($claims->string('iss'))->toBe('logger');
+});
+
+it('rejects a token whose iss claims another issuer secret', function (): void {
+    // Signed with geo's secret but claiming to be logger: the iss selects
+    // logger's secret, whose signature cannot match.
+    $token = (new Encoder)->encode([
+        'iss' => 'logger',
+        'aud' => 'auth',
+        'scope' => 'service',
+        'exp' => 1_700_000_060,
+    ], new HmacSecret(ISSUER_SECRETS['geo']), Algorithm::HS256);
+
+    serviceService(secrets: ISSUER_SECRETS)->verify($token);
+})->throws(InvalidSignature::class);
+
+it('rejects an issuer with no configured secret in per-issuer mode', function (): void {
+    $token = (new Encoder)->encode([
+        'iss' => 'intruder',
+        'aud' => 'auth',
+        'scope' => 'service',
+        'exp' => 1_700_000_060,
+    ], new HmacSecret(SERVICE_SECRET), Algorithm::HS256);
+
+    serviceService(secrets: ISSUER_SECRETS)->verify($token);
+})->throws(ClaimMismatch::class, 'no configured secret');
+
+it('ignores the shared secret when per-issuer secrets are configured', function (): void {
+    // Signed with the shared secret while per-issuer mode is active — must fail.
+    $token = (new Encoder)->encode([
+        'iss' => 'logger',
+        'aud' => 'auth',
+        'scope' => 'service',
+        'exp' => 1_700_000_060,
+    ], new HmacSecret(SERVICE_SECRET), Algorithm::HS256);
+
+    serviceService(secrets: ISSUER_SECRETS)->verify($token);
+})->throws(InvalidSignature::class);
+
+it('raises a misconfiguration when the own issuer is absent from the secret map', function (): void {
+    serviceService(issuer: 'unmapped', secrets: ISSUER_SECRETS)->issue();
+})->throws(ServiceAuthMisconfigured::class, 'own issuer');
