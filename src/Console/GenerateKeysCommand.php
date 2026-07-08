@@ -55,7 +55,12 @@ final class GenerateKeysCommand extends Command
         }
 
         $privateKey = '';
-        openssl_pkey_export($resource, $privateKey);
+
+        if (openssl_pkey_export($resource, $privateKey) === false) {
+            $this->components->error('Failed to export the generated private key.');
+
+            return self::FAILURE;
+        }
 
         $details = openssl_pkey_get_details($resource);
 
@@ -68,10 +73,25 @@ final class GenerateKeysCommand extends Command
         File::ensureDirectoryExists(dirname($privatePath));
         File::ensureDirectoryExists(dirname($publicPath));
 
-        file_put_contents($privatePath, $privateKey);
-        chmod($privatePath, 0600);
+        // Lock the file down to 0600 BEFORE the key material lands in it, so
+        // there is no window where the private key is umask-readable.
+        if (! touch($privatePath) || ! chmod($privatePath, 0600)) {
+            $this->components->error("Unable to create [{$privatePath}] with owner-only permissions.");
 
-        file_put_contents($publicPath, $details['key']);
+            return self::FAILURE;
+        }
+
+        if (file_put_contents($privatePath, $privateKey) === false) {
+            $this->components->error("Unable to write the private key to [{$privatePath}].");
+
+            return self::FAILURE;
+        }
+
+        if (file_put_contents($publicPath, $details['key']) === false) {
+            $this->components->error("Unable to write the public key to [{$publicPath}].");
+
+            return self::FAILURE;
+        }
 
         $this->components->info("Wrote private key to [{$privatePath}] (0600).");
         $this->components->info("Wrote public key to [{$publicPath}].");
