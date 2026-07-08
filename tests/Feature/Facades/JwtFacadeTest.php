@@ -115,7 +115,7 @@ it('rethrows verification failures', function (): void {
     $token = Jwt::mintAccessToken(AccessTokenRequest::for('user-1'))->token;
     [$h, $p, $s] = explode('.', $token);
 
-    $s = substr($s, 0, -1).($s[-1] === 'A' ? 'B' : 'A');
+    $s = ($s[0] === 'A' ? 'B' : 'A').substr($s, 1);
 
     Jwt::verify($h.'.'.$p.'.'.$s);
 })->throws(InvalidSignature::class);
