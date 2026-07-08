@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Jwt\ServiceTokens;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Str;
+use RoundlyConsulting\Jwt\Events\ServiceTokenIssued;
 use RoundlyConsulting\Jwt\Jose\Algorithm;
 use RoundlyConsulting\Jwt\Jose\Claims;
 use RoundlyConsulting\Jwt\Jose\Decoder;
@@ -16,6 +18,7 @@ use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenIssuer;
 use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenVerifier;
 use RoundlyConsulting\Jwt\ServiceTokens\Exceptions\ServiceAuthMisconfigured;
 use RoundlyConsulting\Jwt\UserTokens\IssuedToken;
+use RoundlyConsulting\Jwt\UserTokens\Scopes;
 
 /**
  * Mints and verifies HS256 machine-to-machine service tokens.
@@ -28,7 +31,7 @@ use RoundlyConsulting\Jwt\UserTokens\IssuedToken;
  */
 final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceTokenVerifier
 {
-    private const SCOPE = 'service';
+    private const SCOPE = Scopes::SERVICE;
 
     /**
      * @param  list<string>  $allowedIssuers  empty ⇒ any issuer accepted
@@ -43,6 +46,7 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
         private readonly array $allowedIssuers,
         private readonly string $serviceName,
         private readonly int $leeway,
+        private readonly ?Dispatcher $events = null,
     ) {}
 
     public function issue(?string $audience = null): IssuedToken
@@ -64,6 +68,8 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
         ];
 
         $token = $this->encoder->encode($claims, $secret, Algorithm::HS256);
+
+        $this->events?->dispatch(new ServiceTokenIssued($this->issuer, $audience ?? $this->defaultAudience, $jti, $expiresAt));
 
         return new IssuedToken($token, $expiresAt, $jti);
     }
