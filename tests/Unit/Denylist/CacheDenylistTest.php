@@ -1,0 +1,54 @@
+<?php
+
+declare(strict_types=1);
+
+use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Cache\Factory as CacheFactory;
+use RoundlyConsulting\Jwt\Denylist\CacheDenylist;
+
+function denylist(): CacheDenylist
+{
+    return new CacheDenylist(app(CacheFactory::class), 'array', 'jwt:denylist:');
+}
+
+beforeEach(function (): void {
+    CarbonImmutable::setTestNow(CarbonImmutable::createFromTimestamp(1_700_000_000));
+});
+
+afterEach(function (): void {
+    CarbonImmutable::setTestNow();
+});
+
+it('reports an unknown jti as not denied', function (): void {
+    expect(denylist()->has('jti-1'))->toBeFalse();
+});
+
+it('denies a jti until its expiry', function (): void {
+    $denylist = denylist();
+    $denylist->deny('jti-1', CarbonImmutable::now()->addSeconds(60));
+
+    expect($denylist->has('jti-1'))->toBeTrue();
+});
+
+it('evicts the entry after the token would have expired', function (): void {
+    $denylist = denylist();
+    $denylist->deny('jti-1', CarbonImmutable::now()->addSeconds(60));
+
+    CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(61));
+
+    expect($denylist->has('jti-1'))->toBeFalse();
+});
+
+it('is a no-op for an already-expired token', function (): void {
+    $denylist = denylist();
+    $denylist->deny('jti-1', CarbonImmutable::now()->subSecond());
+
+    expect($denylist->has('jti-1'))->toBeFalse();
+});
+
+it('prefixes stored keys', function (): void {
+    $denylist = denylist();
+    $denylist->deny('abc', CarbonImmutable::now()->addSeconds(60));
+
+    expect(app(CacheFactory::class)->store('array')->has('jwt:denylist:abc'))->toBeTrue();
+});
