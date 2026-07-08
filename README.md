@@ -15,12 +15,14 @@ Two token families, strictly separated by algorithm and purpose:
 
 - **User tokens — RS256 (asymmetric).** Minted by issuer apps holding the private key; verified
   offline everywhere with only the public PEM.
-- **Service tokens — HS256 (shared secret).** Machine-to-machine only.
+- **Service tokens — HS256 (shared or per-issuer secrets).** Machine-to-machine only.
 
 Security is the point: single-algorithm pinning (so `alg:none` and RS256↔HS256 confusion are
-structurally impossible), constant-time HMAC comparison, PEM-as-HMAC rejection, RSA key-type and
-key-size (≥ 2048-bit) validation, per-call clock leeway with no global state, and rejection of the
-`crit` header.
+structurally impossible), constant-time HMAC comparison, PEM-as-HMAC rejection, a 256-bit minimum
+HMAC secret, RSA key-type and key-size (≥ 2048-bit) validation, mandatory `iss`/`aud` pinning
+(empty pins are a hard misconfiguration, never a vacuous match), per-call clock leeway with no
+global state, and rejection of the `crit` header. Misconfiguration always surfaces as a 500 —
+a missing key or secret can never masquerade as a silent 401.
 
 ## Requirements
 
@@ -58,9 +60,8 @@ verification once the keys/secret are set. Every key and its backing env var:
 |---|---|---|---|
 | `private_key_path` | `JWT_PRIVATE_KEY_PATH` | `null` | RSA private key path (issuers only) |
 | `public_key_path` | `JWT_PUBLIC_KEY_PATH` | `storage_path('jwt-public.pem')` | RSA public key path |
-| `algo` | `JWT_ALGO` | `RS256` | User-token algorithm |
-| `issuer` | `JWT_ISSUER` | `null` | Pinned `iss` |
-| `audience` | `JWT_AUDIENCE` | `null` | Pinned `aud` |
+| `issuer` | `JWT_ISSUER` | `null` | Pinned `iss` — **required**; empty throws `JwtMisconfigured` |
+| `audience` | `JWT_AUDIENCE` | `null` | Pinned `aud` — **required**; empty throws `JwtMisconfigured` |
 | `ttl` | `JWT_TTL` | `900` | Access-token lifetime (seconds) |
 | `challenge_ttl` | `JWT_CHALLENGE_TTL` | `300` | `2fa_pending` lifetime |
 | `verify_ttl` | `JWT_VERIFY_TTL` | `3600` | `email_verify` lifetime |
@@ -72,7 +73,8 @@ verification once the keys/secret are set. Every key and its backing env var:
 | `guard.check_denylist` | `JWT_CHECK_DENYLIST` | `true` | Enforce the jti denylist |
 | `denylist.store` | `JWT_DENYLIST_STORE` | `redis` | Cache store backing the denylist |
 | `denylist.prefix` | `JWT_DENYLIST_PREFIX` | `jwt:denylist:` | Denylist cache-key prefix |
-| `service.secret` | `SERVICE_JWT_SECRET` | `null` | HS256 shared secret |
+| `service.secret` | `SERVICE_JWT_SECRET` | `null` | HS256 shared secret, ≥32 bytes (`openssl rand -base64 48`) |
+| `service.secrets` | `SERVICE_JWT_SECRETS` | `null` | Per-issuer secrets `"billing:<secret>,api:<secret>"`; overrides `secret` |
 | `service.issuer` | `JWT_SERVICE_ISSUER` | `env('APP_SERVICE')` | This service's name (token `iss`) |
 | `service.audience` | `JWT_SERVICE_AUDIENCE` | `null` | Default service-token `aud` |
 | `service.ttl` | `SERVICE_JWT_TTL` | `60` | Service-token lifetime (seconds) |
@@ -204,7 +206,15 @@ Jwt::caller()->request('target-service')
     ->post('https://target.internal/endpoint', [...]);
 ```
 
-A missing `SERVICE_JWT_SECRET` raises `ServiceAuthMisconfigured` (a 500), never a silent 401.
+A missing, too-short or PEM-shaped `SERVICE_JWT_SECRET` raises `ServiceAuthMisconfigured` (a
+500), never a silent 401.
+
+**Choosing a secret mode.** With one shared `SERVICE_JWT_SECRET`, possession of the secret is
+the only proof — any holder can mint a token claiming any `iss`, so the issuer allow-list is a
+label, not authentication. For real service identity set `SERVICE_JWT_SECRETS` instead
+(`"billing:<secret>,api:<secret>"`): each service signs with its own secret, the verifier picks
+the secret by the token's `iss` (a `kid`-style lookup), and a forged `iss` selects a secret its
+signature cannot match. One leaked secret then no longer impersonates the whole mesh.
 
 ### Log a user out (denylist a jti)
 
