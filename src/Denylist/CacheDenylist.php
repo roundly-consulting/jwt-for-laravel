@@ -6,7 +6,10 @@ namespace RoundlyConsulting\Jwt\Denylist;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
+use Illuminate\Contracts\Events\Dispatcher;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
+use RoundlyConsulting\Jwt\Events\TokenDenied;
+use RoundlyConsulting\Jwt\UserTokens\IssuedToken;
 
 /**
  * A cache-backed denylist. Each denied `jti` is stored under a prefixed key
@@ -19,6 +22,7 @@ final class CacheDenylist implements Denylist
         private readonly CacheFactory $cache,
         private readonly ?string $store,
         private readonly string $prefix,
+        private readonly ?Dispatcher $events = null,
     ) {}
 
     public function has(string $jti): bool
@@ -36,6 +40,13 @@ final class CacheDenylist implements Denylist
         }
 
         $this->cache->store($this->store)->put($this->key($jti), true, $seconds);
+
+        $this->events?->dispatch(new TokenDenied($jti, $until));
+    }
+
+    public function denyToken(IssuedToken $token): void
+    {
+        $this->deny($token->jti, $token->expiresAt);
     }
 
     private function key(string $jti): string

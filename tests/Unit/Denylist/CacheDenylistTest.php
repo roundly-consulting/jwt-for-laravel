@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use RoundlyConsulting\Jwt\Denylist\CacheDenylist;
+use RoundlyConsulting\Jwt\UserTokens\IssuedToken;
 
 function denylist(): CacheDenylist
 {
@@ -51,4 +52,22 @@ it('prefixes stored keys', function (): void {
     $denylist->deny('abc', CarbonImmutable::now()->addSeconds(60));
 
     expect(app(CacheFactory::class)->store('array')->has('jwt:denylist:abc'))->toBeTrue();
+});
+
+it('denies a freshly issued token until its own expiry', function (): void {
+    $denylist = denylist();
+    $token = new IssuedToken('the.jwt.value', CarbonImmutable::now()->addSeconds(60), 'jti-token');
+
+    $denylist->denyToken($token);
+
+    expect($denylist->has('jti-token'))->toBeTrue();
+});
+
+it('works without an event dispatcher bound', function (): void {
+    // Null dispatcher (the constructor default) must never crash a deny.
+    $denylist = new CacheDenylist(app(CacheFactory::class), 'array', 'jwt:denylist:', null);
+
+    $denylist->deny('jti-nulld', CarbonImmutable::now()->addSeconds(60));
+
+    expect($denylist->has('jti-nulld'))->toBeTrue();
 });
