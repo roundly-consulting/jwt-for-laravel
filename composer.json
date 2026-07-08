@@ -78,7 +78,10 @@
         "laravel": {
             "providers": [
                 "RoundlyConsulting\\Jwt\\JwtServiceProvider"
-            ]
+            ],
+            "aliases": {
+                "Jwt": "RoundlyConsulting\\Jwt\\Facades\\Jwt"
+            }
         }
     },
     "minimum-stability": "dev",

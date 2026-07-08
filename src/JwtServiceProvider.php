@@ -8,6 +8,7 @@ use Closure;
 use Illuminate\Auth\AuthManager;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -51,7 +52,10 @@ final class JwtServiceProvider extends ServiceProvider
             (string) config('jwt.issuer'),
             (string) config('jwt.audience'),
             (int) config('jwt.ttl'),
+            (int) config('jwt.challenge_ttl'),
+            (int) config('jwt.verify_ttl'),
             $this->nullableString(config('jwt.kid')),
+            $this->dispatcher($app),
         ));
 
         $this->app->singleton(UserTokenVerifier::class, fn (Application $app): NativeUserTokenVerifier => new NativeUserTokenVerifier(
@@ -72,6 +76,7 @@ final class JwtServiceProvider extends ServiceProvider
             $this->stringList(config('jwt.service.issuers')),
             (string) config('app.service'),
             (int) config('jwt.leeway'),
+            $this->dispatcher($app),
         ));
 
         $this->app->bind(ServiceTokenIssuer::class, NativeServiceTokenService::class);
@@ -81,7 +86,10 @@ final class JwtServiceProvider extends ServiceProvider
             $app->make(CacheFactory::class),
             $this->nullableString(config('jwt.denylist.store')),
             (string) config('jwt.denylist.prefix'),
+            $this->dispatcher($app),
         ));
+
+        $this->app->singleton(JwtManager::class, fn (Application $app): JwtManager => new JwtManager($app));
     }
 
     public function boot(): void
@@ -176,6 +184,11 @@ final class JwtServiceProvider extends ServiceProvider
 
             return null;
         });
+    }
+
+    private function dispatcher(Application $app): ?Dispatcher
+    {
+        return $app->bound(Dispatcher::class) ? $app->make(Dispatcher::class) : null;
     }
 
     private function nullableString(mixed $value): ?string
