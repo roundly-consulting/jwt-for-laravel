@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="https://roundly-consulting.com/open-source">
+    <img src="art/hero.png" alt="JWT for Laravel — Roundly open source" width="100%">
+  </a>
+</p>
+
 # JWT for Laravel
 
 Native **RS256 user tokens** and **HS256 service tokens**, guard drivers, a jti denylist and
