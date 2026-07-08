@@ -81,19 +81,43 @@ verification once the keys/secret are set. Every key and its backing env var:
 
 ## Usage
 
-### Mint a user access token
+### Quick start with the `Jwt` facade
 
-Resolve the `UserTokenIssuer` contract (bound to `NativeUserTokenIssuer`):
+The `Jwt` facade is the one obvious entry point — every call routes to the same container-bound
+contract, so host overrides and tests keep working. It is auto-registered as the global alias
+`Jwt` (or import `RoundlyConsulting\Jwt\Facades\Jwt`).
 
 ```php
+use RoundlyConsulting\Jwt\Facades\Jwt;
+use RoundlyConsulting\Jwt\UserTokens\AccessTokenRequest;
+
+// Mint an access token with a fluent, self-documenting request.
+$issued = Jwt::mintAccessToken(
+    AccessTokenRequest::for($user->id)
+        ->email($user->email, verified: $user->hasVerifiedEmail())
+        ->tokenVersion($user->token_version)
+        ->permissions('posts.view', 'posts.edit')
+);
+
+$claims = Jwt::verify($issued->token);   // RS256 + iss/aud pinned
+Jwt::logout($issued);                     // denylist it (one-call logout)
+$current = Jwt::claims();                 // current request's claims, or null
+```
+
+Facade surface: `mintAccessToken()`, `mint()`, `mintChallengeToken()`, `mintEmailVerifyToken()`,
+`verify()`, `service()`, `caller()`, `denylist()`, `logout()`, `denyClaims()`, `claims()`.
+
+### Mint a user access token
+
+Prefer the facade above. Under the hood it delegates to the `UserTokenIssuer` contract (bound to
+`NativeUserTokenIssuer`), which you can also resolve directly for DI/testing:
+
+```php
+use RoundlyConsulting\Jwt\UserTokens\AccessTokenRequest;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenIssuer;
 
 $issued = app(UserTokenIssuer::class)->mintAccessToken(
-    subject: (string) $user->id,
-    email: $user->email,
-    emailVerified: $user->hasVerifiedEmail(),
-    tokenVersion: $user->token_version,
-    permissions: ['posts.view', 'posts.edit'],
+    AccessTokenRequest::for($user->id)->email($user->email, verified: true)
 );
 
 $issued->token;      // the compact JWS string
@@ -101,19 +125,35 @@ $issued->expiresAt;  // CarbonImmutable
 $issued->jti;        // the token id (store it to denylist later)
 ```
 
-For challenge or custom scopes use the generic `mint()`:
+### Challenge, email-verify and custom scopes
+
+The `2fa_pending` and `email_verify` convenience mints consume the configured `challenge_ttl`
+and `verify_ttl` — no more hand-passing the number:
 
 ```php
-$issuer->mint($subject, '2fa_pending', ttl: 300);
-$issuer->mint($subject, 'email_verify', ttl: 3600, extraClaims: ['email' => $email]);
+Jwt::mintChallengeToken($subject);                 // scope=2fa_pending, exp = challenge_ttl
+Jwt::mintEmailVerifyToken($subject, $user->email); // scope=email_verify, exp = verify_ttl
+
+// Any other scope via the generic mint():
+Jwt::mint($subject, 'my_custom_scope', ttl: 120, extraClaims: ['org' => 42]);
+```
+
+The four built-in scopes have discoverable constants (still plain strings — custom scopes remain
+free strings):
+
+```php
+use RoundlyConsulting\Jwt\UserTokens\Scopes;
+
+Scopes::ACCESS;          // 'access'
+Scopes::TWO_FA_PENDING;  // '2fa_pending'
+Scopes::EMAIL_VERIFY;    // 'email_verify'
+Scopes::SERVICE;         // 'service'
 ```
 
 ### Verify a token offline
 
 ```php
-use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
-
-$claims = app(UserTokenVerifier::class)->verify($jwt); // RS256 + iss/aud pinned
+$claims = Jwt::verify($jwt);   // or app(UserTokenVerifier::class)->verify($jwt)
 $claims->string('sub');
 $claims->list('permissions');
 ```
@@ -155,13 +195,12 @@ In provider mode, set `guard.token_version` so a bumped version invalidates old 
 ### Issue and send a service token
 
 ```php
-use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenIssuer;
-use RoundlyConsulting\Jwt\ServiceTokens\ServiceCaller;
+use RoundlyConsulting\Jwt\Facades\Jwt;
 
-$token = app(ServiceTokenIssuer::class)->issue('target-service')->token;
+$token = Jwt::service()->issue('target-service')->token;
 
 // Or attach one to an outbound internal HTTP call:
-app(ServiceCaller::class)->request('target-service')
+Jwt::caller()->request('target-service')
     ->post('https://target.internal/endpoint', [...]);
 ```
 
@@ -170,13 +209,41 @@ A missing `SERVICE_JWT_SECRET` raises `ServiceAuthMisconfigured` (a 500), never 
 ### Log a user out (denylist a jti)
 
 ```php
-use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
+use RoundlyConsulting\Jwt\Facades\Jwt;
 
-app(Denylist::class)->deny($issued->jti, $issued->expiresAt);
+Jwt::logout($issued);                 // from a freshly issued token
+Jwt::denyClaims(Jwt::verify($jwt));   // or from verified claims (reads jti + exp)
+
+// Power users not using the facade:
+app(\RoundlyConsulting\Jwt\Denylist\Contracts\Denylist::class)->denyToken($issued);
 ```
 
 The entry auto-evicts when the token would have expired. The `jwt` guard rejects denylisted
 tokens while `guard.check_denylist` is true.
+
+### Events
+
+The package dispatches lifecycle events (via the container's event dispatcher; a no-op when none
+is bound) so hosts can audit, meter or alert without forking. Payloads are minimal and carry **no
+token strings, secrets or keys**:
+
+| Event | When | Payload |
+|---|---|---|
+| `UserTokenIssued` | a user token is minted | `subject`, `scope`, `jti`, `expiresAt` |
+| `ServiceTokenIssued` | a service token is issued | `issuer`, `audience`, `jti`, `expiresAt` |
+| `TokenVerificationFailed` | an explicit `Jwt::verify()` fails | `reason`, `exceptionClass` |
+| `TokenDenied` | a jti is denylisted | `jti`, `until` |
+
+`TokenVerificationFailed` fires only from the explicit verify path — never from the guard's silent
+per-request resolution, so anonymous probes don't spam it.
+
+```php
+use RoundlyConsulting\Jwt\Events\UserTokenIssued;
+
+Event::listen(function (UserTokenIssued $event): void {
+    Log::info('token issued', ['sub' => $event->subject, 'scope' => $event->scope]);
+});
+```
 
 ### Claim-based authorization
 
