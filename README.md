@@ -9,7 +9,7 @@
 Native **RS256 user tokens** and **HS256 service tokens**, guard drivers, a jti denylist and
 claim-based authorization for Laravel — with **zero third-party crypto**. The entire JOSE core
 (compact JWS encode/verify, base64url, key handling) is implemented on top of PHP's own
-`ext-openssl`/`hash_hmac`; there is no `firebase/php-jwt` or any other runtime JWT dependency.
+`ext-openssl`/`hash_hmac`; there is no third-party runtime JWT dependency of any kind.
 
 Two token families, strictly separated by algorithm and purpose:
 
@@ -267,12 +267,13 @@ php artisan jwt:generate-keys --force  # overwrite existing keys
 
 Generates a 2048-bit RSA keypair; the private key is written with `0600` permissions.
 
-## Firebase-free parity
+## Standards-based parity
 
-The package is verification-compatible with the tokens `firebase/php-jwt` produces, proven by
-committed static fixtures and the RFC 7515 example vectors under `tests/fixtures/` — **without
-`firebase/php-jwt` ever appearing in `composer.json`** (an architecture test forbids importing
-`Firebase\` in `src/` and `tests/`). The fixtures are a test aid, not a runtime dependency.
+The package is verification-compatible with standard JWS/JWT tokens, proven by committed static
+parity fixtures and the RFC 7515 example vectors under `tests/fixtures/` — **with zero third-party
+JWT or crypto libraries in `composer.json`** (an architecture test keeps `src/` and `tests/` free of
+any third-party JWT dependency by allow-listing only permitted vendor roots). The fixtures are a
+test aid, not a runtime dependency.
 
 ## Testing
 
