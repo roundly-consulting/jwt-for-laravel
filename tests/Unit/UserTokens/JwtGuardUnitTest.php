@@ -8,6 +8,7 @@ use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
 use RoundlyConsulting\Jwt\Jose\Claims;
 use RoundlyConsulting\Jwt\Jose\Exceptions\InvalidSignature;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
+use RoundlyConsulting\Jwt\UserTokens\IssuedToken;
 use RoundlyConsulting\Jwt\UserTokens\JwtGuard;
 use RoundlyConsulting\Jwt\UserTokens\TokenUser;
 
@@ -36,6 +37,8 @@ function noopDenylist(): Denylist
         }
 
         public function deny(string $jti, CarbonImmutable $until): void {}
+
+        public function denyToken(IssuedToken $token): void {}
     };
 }
 
@@ -77,6 +80,20 @@ it('validates credentials by token', function (): void {
     expect($guard->validate(['token' => 'good']))->toBeTrue()
         ->and($guard->validate(['token' => 'bad']))->toBeFalse()
         ->and($guard->validate([]))->toBeFalse();
+});
+
+it('returns no user when the subject claim is not a string', function (): void {
+    $verifier = new class implements UserTokenVerifier
+    {
+        public function verify(string $jwt): Claims
+        {
+            return new Claims(['sub' => 123, 'scope' => 'access', 'jti' => 'j1']);
+        }
+    };
+
+    $guard = new JwtGuard($verifier, noopDenylist(), requestWithToken('good'), 'access', TokenUser::class, true, null, null);
+
+    expect($guard->user())->toBeNull();
 });
 
 it('re-resolves when the request instance changes', function (): void {
