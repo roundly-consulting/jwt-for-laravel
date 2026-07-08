@@ -13,7 +13,7 @@ uses(ClaimAuthorizationTestCase::class)->in('ClaimAuthorization');
 
 function fixturesDir(): string
 {
-    return __DIR__.'/fixtures';
+    return __DIR__.'/Fixtures';
 }
 
 function readFixture(string $relative): string

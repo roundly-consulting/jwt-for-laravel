@@ -19,7 +19,7 @@ abstract class TestCase extends Orchestra
 
     protected function fixturePath(string $path): string
     {
-        return __DIR__.'/fixtures/'.ltrim($path, '/');
+        return __DIR__.'/Fixtures/'.ltrim($path, '/');
     }
 
     protected function fixture(string $path): string
