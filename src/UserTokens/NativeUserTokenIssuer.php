@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Jwt\UserTokens;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Str;
+use RoundlyConsulting\Jwt\Events\UserTokenIssued;
 use RoundlyConsulting\Jwt\Jose\Algorithm;
 use RoundlyConsulting\Jwt\Jose\Encoder;
 use RoundlyConsulting\Jwt\Support\KeyRepository;
@@ -26,7 +28,10 @@ final class NativeUserTokenIssuer implements UserTokenIssuer
         private readonly string $issuer,
         private readonly string $audience,
         private readonly int $ttl,
+        private readonly int $challengeTtl,
+        private readonly int $verifyTtl,
         private readonly ?string $kid = null,
+        private readonly ?Dispatcher $events = null,
     ) {}
 
     public function mint(string $subject, string $scope, int $ttl, array $extraClaims = []): IssuedToken
@@ -49,26 +54,23 @@ final class NativeUserTokenIssuer implements UserTokenIssuer
 
         $token = $this->encoder->encode($claims, $this->keys->privateKey(), Algorithm::RS256, $this->kid);
 
+        $this->events?->dispatch(new UserTokenIssued($subject, $scope, $jti, $expiresAt));
+
         return new IssuedToken($token, $expiresAt, $jti);
     }
 
-    /**
-     * Convenience wrapper preserving the platform's access-token shape.
-     *
-     * @param  list<string>  $permissions
-     */
-    public function mintAccessToken(
-        string $subject,
-        string $email,
-        bool $emailVerified,
-        int $tokenVersion,
-        array $permissions = [],
-    ): IssuedToken {
-        return $this->mint($subject, 'access', $this->ttl, [
-            'email' => $email,
-            'email_verified' => $emailVerified,
-            'tv' => $tokenVersion,
-            'permissions' => $permissions,
-        ]);
+    public function mintAccessToken(AccessTokenRequest $request): IssuedToken
+    {
+        return $this->mint($request->subject, Scopes::ACCESS, $this->ttl, $request->toClaims());
+    }
+
+    public function mintChallengeToken(string $subject, array $extraClaims = []): IssuedToken
+    {
+        return $this->mint($subject, Scopes::TWO_FA_PENDING, $this->challengeTtl, $extraClaims);
+    }
+
+    public function mintEmailVerifyToken(string $subject, string $email): IssuedToken
+    {
+        return $this->mint($subject, Scopes::EMAIL_VERIFY, $this->verifyTtl, ['email' => $email]);
     }
 }

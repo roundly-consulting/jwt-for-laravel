@@ -7,8 +7,10 @@ use RoundlyConsulting\Jwt\Jose\Decoder;
 use RoundlyConsulting\Jwt\Jose\Encoder;
 use RoundlyConsulting\Jwt\Jose\Exceptions\ClaimMismatch;
 use RoundlyConsulting\Jwt\Support\KeyRepository;
+use RoundlyConsulting\Jwt\UserTokens\AccessTokenRequest;
 use RoundlyConsulting\Jwt\UserTokens\NativeUserTokenIssuer;
 use RoundlyConsulting\Jwt\UserTokens\NativeUserTokenVerifier;
+use RoundlyConsulting\Jwt\UserTokens\Scopes;
 
 function keys(): KeyRepository
 {
@@ -20,7 +22,7 @@ function keys(): KeyRepository
 
 function issuer(): NativeUserTokenIssuer
 {
-    return new NativeUserTokenIssuer(new Encoder, keys(), 'jwt-issuer', 'cosmos-web', 900);
+    return new NativeUserTokenIssuer(new Encoder, keys(), 'jwt-issuer', 'cosmos-web', 900, 300, 3600);
 }
 
 function verifier(string $issuerName = 'jwt-issuer', string $audience = 'cosmos-web'): NativeUserTokenVerifier
@@ -58,7 +60,13 @@ it('produces a uuid jti', function (): void {
 });
 
 it('mints an access token with the platform claim shape', function (): void {
-    $issued = issuer()->mintAccessToken('user-1', 'a@b.test', true, 7, ['posts.view', 'posts.edit']);
+    $issued = issuer()->mintAccessToken(
+        AccessTokenRequest::for('user-1')
+            ->email('a@b.test', verified: true)
+            ->tokenVersion(7)
+            ->permissions('posts.view', 'posts.edit')
+            ->withClaims(['org' => 42]),
+    );
 
     $claims = verifier()->verify($issued->token);
 
@@ -66,7 +74,30 @@ it('mints an access token with the platform claim shape', function (): void {
         ->and($claims->get('email_verified'))->toBeTrue()
         ->and($claims->int('tv'))->toBe(7)
         ->and($claims->list('permissions'))->toBe(['posts.view', 'posts.edit'])
-        ->and($claims->string('scope'))->toBe('access');
+        ->and($claims->int('org'))->toBe(42)
+        ->and($claims->string('scope'))->toBe(Scopes::ACCESS);
+});
+
+it('mints a challenge token that consumes the configured challenge ttl', function (): void {
+    $issued = issuer()->mintChallengeToken('user-1', ['method' => 'totp']);
+
+    $claims = verifier()->verify($issued->token);
+
+    expect($claims->string('scope'))->toBe(Scopes::TWO_FA_PENDING)
+        ->and($claims->string('sub'))->toBe('user-1')
+        ->and($claims->string('method'))->toBe('totp')
+        ->and($claims->int('exp'))->toBe(1_700_000_000 + 300)
+        ->and($issued->expiresAt->getTimestamp())->toBe(1_700_000_000 + 300);
+});
+
+it('mints an email-verify token that consumes the configured verify ttl', function (): void {
+    $issued = issuer()->mintEmailVerifyToken('user-1', 'a@b.test');
+
+    $claims = verifier()->verify($issued->token);
+
+    expect($claims->string('scope'))->toBe(Scopes::EMAIL_VERIFY)
+        ->and($claims->string('email'))->toBe('a@b.test')
+        ->and($claims->int('exp'))->toBe(1_700_000_000 + 3600);
 });
 
 it('never lets extra claims override registered claims', function (): void {
