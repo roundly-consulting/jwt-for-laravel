@@ -95,6 +95,36 @@ it('returns no user when the subject claim is not a string', function (): void {
     expect($guard->user())->toBeNull();
 });
 
+it('rejects a token without a string jti when the denylist is enabled', function (): void {
+    // A validly signed token whose `jti` can't be denylisted must fail closed,
+    // otherwise a co-issuer omitting `jti` could mint irrevocable tokens.
+    $verifier = new class implements UserTokenVerifier
+    {
+        public function verify(string $jwt): Claims
+        {
+            return new Claims(['sub' => 'user-1', 'scope' => 'access']);
+        }
+    };
+
+    $guard = new JwtGuard($verifier, noopDenylist(), requestWithToken('good'), 'access', TokenUser::class, true, null, null);
+
+    expect($guard->user())->toBeNull();
+});
+
+it('still authenticates a jti-less token when denylisting is disabled', function (): void {
+    $verifier = new class implements UserTokenVerifier
+    {
+        public function verify(string $jwt): Claims
+        {
+            return new Claims(['sub' => 'user-1', 'scope' => 'access']);
+        }
+    };
+
+    $guard = new JwtGuard($verifier, noopDenylist(), requestWithToken('good'), 'access', TokenUser::class, false, null, null);
+
+    expect($guard->user())->toBeInstanceOf(TokenUser::class);
+});
+
 it('re-resolves when the request instance changes', function (): void {
     $guard = guardFor(requestWithToken('good'));
 

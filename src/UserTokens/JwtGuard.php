@@ -127,7 +127,11 @@ final class JwtGuard implements Guard
             if ($this->checkDenylist) {
                 $jti = $claims->get('jti');
 
-                if (is_string($jti) && $this->denylist->has($jti)) {
+                // Fail closed: a token with no string `jti` can never be looked
+                // up in the denylist, so it can never be revoked. Reject it
+                // rather than skip the check, so a co-issuer sharing the keypair
+                // cannot mint irrevocable tokens by omitting `jti`.
+                if (! is_string($jti) || $this->denylist->has($jti)) {
                     return null;
                 }
             }
