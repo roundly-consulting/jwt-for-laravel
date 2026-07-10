@@ -12,6 +12,7 @@ use RoundlyConsulting\Jwt\Jose\Exceptions\MalformedToken;
 use RoundlyConsulting\Jwt\Jose\Exceptions\TokenExpired;
 use RoundlyConsulting\Jwt\Jose\Exceptions\TokenNotYetValid;
 use RoundlyConsulting\Jwt\Jose\Exceptions\UnexpectedCriticalHeader;
+use RoundlyConsulting\Jwt\Jose\Exceptions\UnexpectedTokenType;
 use RoundlyConsulting\Jwt\Jose\Keys\HmacSecret;
 use RoundlyConsulting\Jwt\Jose\Keys\RsaPublicKey;
 
@@ -30,11 +31,23 @@ use RoundlyConsulting\Jwt\Jose\Keys\RsaPublicKey;
 final class Decoder
 {
     /**
-     * @throws AlgorithmMismatch|MalformedToken|InvalidSignature|TokenExpired|TokenNotYetValid|UnexpectedCriticalHeader
+     * Upper bound on a compact JWS we will even attempt to decode. RS256 tokens
+     * with a full claim set stay well under 2 KB; 8 KB leaves generous headroom
+     * while capping decode effort without leaning on the web server's header
+     * limits.
+     */
+    public const int MAX_ENCODED_BYTES = 8192;
+
+    /**
+     * @throws AlgorithmMismatch|MalformedToken|InvalidSignature|TokenExpired|TokenNotYetValid|UnexpectedCriticalHeader|UnexpectedTokenType
      */
     public function decode(string $jwt, RsaPublicKey|HmacSecret $key, Algorithm $expected, int $leeway): Claims
     {
         $this->assertKeyMatchesAlgorithm($key, $expected);
+
+        if (strlen($jwt) > self::MAX_ENCODED_BYTES) {
+            throw new MalformedToken('The token exceeds the maximum permitted length.');
+        }
 
         $parts = explode('.', $jwt);
 
@@ -49,6 +62,8 @@ final class Decoder
         if (array_key_exists('crit', $header)) {
             throw new UnexpectedCriticalHeader('The `crit` header is not supported.');
         }
+
+        $this->assertTokenType($header);
 
         $alg = $header['alg'] ?? null;
 
@@ -70,6 +85,29 @@ final class Decoder
         $this->assertTemporal($claims, $leeway);
 
         return $claims;
+    }
+
+    /**
+     * RFC 8725 §3.11 explicit typing: when a `typ` header is present it must
+     * identify a JWT, so an artifact signed with the same key but a different
+     * media type can't be confused for one of our tokens. An absent `typ` is
+     * accepted for interop (it is optional per RFC 7519). RFC 7519 permits
+     * dropping the `application/` media-type prefix, so both forms are allowed.
+     *
+     * @param  array<string, mixed>  $header
+     */
+    private function assertTokenType(array $header): void
+    {
+        if (! array_key_exists('typ', $header)) {
+            return;
+        }
+
+        $typ = $header['typ'];
+        $normalized = is_string($typ) ? strtolower($typ) : '';
+
+        if ($normalized !== 'jwt' && $normalized !== 'application/jwt') {
+            throw new UnexpectedTokenType('The token `typ` header must be "JWT" when present.');
+        }
     }
 
     private function assertKeyMatchesAlgorithm(RsaPublicKey|HmacSecret $key, Algorithm $expected): void

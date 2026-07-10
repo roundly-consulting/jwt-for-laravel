@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Jwt\Jose;
 
+use JsonException;
 use RoundlyConsulting\Jwt\Jose\Exceptions\AlgorithmMismatch;
 use RoundlyConsulting\Jwt\Jose\Exceptions\MalformedToken;
+use RoundlyConsulting\Jwt\Jose\Exceptions\UnencodableClaims;
 use RoundlyConsulting\Jwt\Jose\Keys\HmacSecret;
 use RoundlyConsulting\Jwt\Jose\Keys\RsaPrivateKey;
 
@@ -22,6 +24,7 @@ final class Encoder
      * @param  array<string, mixed>  $claims
      *
      * @throws AlgorithmMismatch when the key type does not match the algorithm.
+     * @throws UnencodableClaims when a claim value cannot be encoded to JSON.
      */
     public function encode(array $claims, RsaPrivateKey|HmacSecret $key, Algorithm $alg, ?string $kid = null): string
     {
@@ -74,9 +77,15 @@ final class Encoder
      */
     private function json(array $data): string
     {
-        // JSON_UNESCAPED_SLASHES keeps byte output identical to the reference
-        // encoder so pre-captured parity fixtures reproduce exactly.
-        return json_encode($data, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        try {
+            // JSON_UNESCAPED_SLASHES keeps byte output identical to the reference
+            // encoder so pre-captured parity fixtures reproduce exactly.
+            return json_encode($data, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        } catch (JsonException $e) {
+            // A bare JsonException would escape the package hierarchy; rethrow it
+            // as a JwtException so minting fails inside the package's contract.
+            throw new UnencodableClaims('A claim value could not be encoded to JSON.', previous: $e);
+        }
     }
 
     private static function drainOpenSslErrors(): void

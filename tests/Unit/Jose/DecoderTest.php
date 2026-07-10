@@ -14,6 +14,7 @@ use RoundlyConsulting\Jwt\Jose\Exceptions\MalformedToken;
 use RoundlyConsulting\Jwt\Jose\Exceptions\TokenExpired;
 use RoundlyConsulting\Jwt\Jose\Exceptions\TokenNotYetValid;
 use RoundlyConsulting\Jwt\Jose\Exceptions\UnexpectedCriticalHeader;
+use RoundlyConsulting\Jwt\Jose\Exceptions\UnexpectedTokenType;
 
 beforeEach(function (): void {
     CarbonImmutable::setTestNow(CarbonImmutable::createFromTimestamp(1_700_000_000));
@@ -43,6 +44,19 @@ function craft(array $header, array $payload, string $signature = 'sig'): string
     return Base64Url::encode(json_encode($header)).'.'
         .Base64Url::encode(json_encode($payload)).'.'
         .Base64Url::encode($signature);
+}
+
+/**
+ * Sign a compact RS256 JWS over an explicit header (so `typ` can be varied)
+ * with the fixture private key — the header the Encoder would never emit.
+ */
+function rs256WithHeader(array $header, array $payload): string
+{
+    $input = Base64Url::encode(json_encode($header)).'.'.Base64Url::encode(json_encode($payload));
+    $signature = '';
+    openssl_sign($input, $signature, rsaPrivateKey()->key, OPENSSL_ALGO_SHA256);
+
+    return $input.'.'.Base64Url::encode($signature);
 }
 
 it('verifies a valid RS256 token and returns claims', function (): void {
@@ -98,6 +112,38 @@ it('rejects a crit header', function (): void {
 
     $this->decoder->decode($token, rsaPublicKey(), Algorithm::RS256, 0);
 })->throws(UnexpectedCriticalHeader::class);
+
+it('rejects a token whose typ is not JWT (RFC 8725 explicit typing)', function (string $typ): void {
+    $token = craft(['typ' => $typ, 'alg' => 'RS256'], ['exp' => futureExp()]);
+
+    $this->decoder->decode($token, rsaPublicKey(), Algorithm::RS256, 0);
+})->with(['at+jwt', 'dpop+jwt', 'not-a-jwt', ''])->throws(UnexpectedTokenType::class);
+
+it('rejects a non-string typ header', function (): void {
+    $token = craft(['typ' => ['JWT'], 'alg' => 'RS256'], ['exp' => futureExp()]);
+
+    $this->decoder->decode($token, rsaPublicKey(), Algorithm::RS256, 0);
+})->throws(UnexpectedTokenType::class);
+
+it('accepts JWT typ case-insensitively and the application/jwt media type', function (string $typ): void {
+    $signed = rs256WithHeader(['typ' => $typ, 'alg' => 'RS256'], ['sub' => 'a', 'exp' => futureExp()]);
+
+    expect($this->decoder->decode($signed, rsaPublicKey(), Algorithm::RS256, 0)->string('sub'))->toBe('a');
+})->with(['JWT', 'jwt', 'application/jwt', 'application/JWT']);
+
+it('accepts a token with no typ header for interop', function (): void {
+    $signed = rs256WithHeader(['alg' => 'RS256'], ['sub' => 'a', 'exp' => futureExp()]);
+
+    expect($this->decoder->decode($signed, rsaPublicKey(), Algorithm::RS256, 0)->string('sub'))->toBe('a');
+});
+
+it('rejects a token longer than the maximum permitted length', function (): void {
+    $token = rs256(['sub' => 'a', 'exp' => futureExp(), 'bloat' => str_repeat('x', 9000)]);
+
+    expect(strlen($token))->toBeGreaterThan(8192);
+
+    $this->decoder->decode($token, rsaPublicKey(), Algorithm::RS256, 0);
+})->throws(MalformedToken::class, 'maximum permitted length');
 
 it('rejects an RS256 verifier handed an HMAC secret', function (): void {
     $token = rs256(['exp' => futureExp()]);

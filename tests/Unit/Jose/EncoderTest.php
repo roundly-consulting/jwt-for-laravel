@@ -6,6 +6,8 @@ use RoundlyConsulting\Jwt\Jose\Algorithm;
 use RoundlyConsulting\Jwt\Jose\Base64Url;
 use RoundlyConsulting\Jwt\Jose\Encoder;
 use RoundlyConsulting\Jwt\Jose\Exceptions\AlgorithmMismatch;
+use RoundlyConsulting\Jwt\Jose\Exceptions\JwtException;
+use RoundlyConsulting\Jwt\Jose\Exceptions\UnencodableClaims;
 
 function decodeSegment(string $token, int $index): array
 {
@@ -43,6 +45,18 @@ it('rejects signing RS256 with an HMAC secret', function (): void {
 it('rejects signing HS256 with an RSA private key', function (): void {
     (new Encoder)->encode([], rsaPrivateKey(), Algorithm::HS256);
 })->throws(AlgorithmMismatch::class);
+
+it('wraps a non-UTF-8 claim in a package exception', function (): void {
+    // A host-supplied extra claim with invalid UTF-8 bytes would throw a bare
+    // JsonException; it must surface as a JwtException so minting stays inside
+    // the package's error contract.
+    (new Encoder)->encode(['bad' => "\xB1\x31"], rsaPrivateKey(), Algorithm::RS256);
+})->throws(UnencodableClaims::class);
+
+it('surfaces the unencodable-claim error as a catchable JwtException', function (): void {
+    expect(fn () => (new Encoder)->encode(['bad' => "\xB1\x31"], rsaPrivateKey(), Algorithm::RS256))
+        ->toThrow(JwtException::class);
+});
 
 it('is deterministic for the same claims and key', function (): void {
     $encoder = new Encoder;
