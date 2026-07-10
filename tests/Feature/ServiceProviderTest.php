@@ -77,6 +77,36 @@ it('parses the per-issuer secret map and round-trips a token through it', functi
     expect($service->verify($issued->token)->string('iss'))->toBe('logger');
 });
 
+it('trims padding around per-issuer secret pairs', function (): void {
+    config([
+        'app.service' => 'auth',
+        'jwt.service.issuer' => 'logger',
+        // Spaces around the colon and after the comma must not derive a
+        // different HMAC key or a never-matching issuer.
+        'jwt.service.secrets' => 'logger : per-issuer-secret-for-logger-0123456789 ,  geo:per-issuer-secret-for-geo-0123456789abc',
+    ]);
+
+    $service = app(NativeServiceTokenService::class);
+    $issued = $service->issue('auth');
+
+    expect($service->verify($issued->token)->string('iss'))->toBe('logger');
+});
+
+it('trims padding around issuer allow-list entries', function (): void {
+    config([
+        'app.service' => 'auth',
+        'jwt.service.issuer' => 'logger',
+        'jwt.service.secret' => 'unit-test-service-secret-0123456789ab',
+        // A padded allow-list entry must still match a token's issuer.
+        'jwt.service.issuers' => [' logger ', ' geo'],
+    ]);
+
+    $service = app(NativeServiceTokenService::class);
+    $issued = $service->issue('auth');
+
+    expect($service->verify($issued->token)->string('iss'))->toBe('logger');
+});
+
 it('lets the host override a bound contract', function (): void {
     $fake = new class implements UserTokenVerifier
     {

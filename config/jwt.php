@@ -41,7 +41,7 @@ return [
         'issuer' => env('JWT_SERVICE_ISSUER', env('APP_SERVICE')),
         'audience' => env('JWT_SERVICE_AUDIENCE'),
         'ttl' => (int) env('SERVICE_JWT_TTL', 60),
-        'issuers' => array_values(array_filter(explode(',', (string) env('JWT_SERVICE_ISSUERS', '')))), // allow-list; empty ⇒ any
+        'issuers' => array_values(array_filter(array_map('trim', explode(',', (string) env('JWT_SERVICE_ISSUERS', ''))))), // allow-list; empty ⇒ any
     ],
 
     // ── Claim-based authorization ───────────────────────────────────────

@@ -221,6 +221,11 @@ final class JwtServiceProvider extends ServiceProvider
 
             [$issuer, $secret] = explode(':', $pair, 2);
 
+            // Trim both sides so `billing: s3cret` doesn't derive a different
+            // HMAC key from a stray space, and a padded issuer still matches.
+            $issuer = trim($issuer);
+            $secret = trim($secret);
+
             if ($issuer !== '' && $secret !== '') {
                 $map[$issuer] = $secret;
             }
@@ -238,6 +243,16 @@ final class JwtServiceProvider extends ServiceProvider
             return [];
         }
 
-        return array_values(array_filter($value, 'is_string'));
+        $strings = [];
+
+        foreach ($value as $item) {
+            // Trim so `JWT_SERVICE_ISSUERS="billing, api"` doesn't yield a
+            // never-matching " api" entry; drop blanks.
+            if (is_string($item) && ($trimmed = trim($item)) !== '') {
+                $strings[] = $trimmed;
+            }
+        }
+
+        return $strings;
     }
 }
