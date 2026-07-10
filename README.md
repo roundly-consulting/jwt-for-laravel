@@ -19,10 +19,13 @@ Two token families, strictly separated by algorithm and purpose:
 
 Security is the point: single-algorithm pinning (so `alg:none` and RS256↔HS256 confusion are
 structurally impossible), constant-time HMAC comparison, PEM-as-HMAC rejection, a 256-bit minimum
-HMAC secret, RSA key-type and key-size (≥ 2048-bit) validation, mandatory `iss`/`aud` pinning
-(empty pins are a hard misconfiguration, never a vacuous match), per-call clock leeway with no
-global state, and rejection of the `crit` header. Misconfiguration always surfaces as a 500 —
-a missing key or secret can never masquerade as a silent 401.
+HMAC secret that must be ≥32 *random* bytes (generate one with `openssl rand -base64 48`; a single
+repeated byte is rejected), RSA key-type and key-size (≥ 2048-bit) validation, mandatory `iss`/`aud`
+pinning (empty pins are a hard misconfiguration, never a vacuous match), per-call clock leeway with
+no global state, rejection of the `crit` header, RFC 8725 explicit typing (a present `typ` must be
+`JWT`), an 8 KB cap on any token before decoding, and a fail-closed denylist (a token with no `jti`
+can never authenticate while denylisting is on). Misconfiguration always surfaces as a 500 — a
+missing key or secret can never masquerade as a silent 401.
 
 ## Requirements
 
@@ -73,7 +76,7 @@ verification once the keys/secret are set. Every key and its backing env var:
 | `guard.check_denylist` | `JWT_CHECK_DENYLIST` | `true` | Enforce the jti denylist |
 | `denylist.store` | `JWT_DENYLIST_STORE` | `redis` | Cache store backing the denylist |
 | `denylist.prefix` | `JWT_DENYLIST_PREFIX` | `jwt:denylist:` | Denylist cache-key prefix |
-| `service.secret` | `SERVICE_JWT_SECRET` | `null` | HS256 shared secret, ≥32 bytes (`openssl rand -base64 48`) |
+| `service.secret` | `SERVICE_JWT_SECRET` | `null` | HS256 shared secret, ≥32 random bytes (`openssl rand -base64 48`) |
 | `service.secrets` | `SERVICE_JWT_SECRETS` | `null` | Per-issuer secrets `"billing:<secret>,api:<secret>"`; overrides `secret` |
 | `service.issuer` | `JWT_SERVICE_ISSUER` | `env('APP_SERVICE')` | This service's name (token `iss`) |
 | `service.audience` | `JWT_SERVICE_AUDIENCE` | `null` | Default service-token `aud` |
@@ -140,16 +143,18 @@ Jwt::mintEmailVerifyToken($subject, $user->email); // scope=email_verify, exp = 
 Jwt::mint($subject, 'my_custom_scope', ttl: 120, extraClaims: ['org' => 42]);
 ```
 
-The four built-in scopes have discoverable constants (still plain strings — custom scopes remain
-free strings):
+The four built-in scopes are a backed enum. `mint()` accepts a `Scope` case or any string, so
+custom scopes stay free strings:
 
 ```php
-use RoundlyConsulting\Jwt\UserTokens\Scopes;
+use RoundlyConsulting\Jwt\UserTokens\Scope;
 
-Scopes::ACCESS;          // 'access'
-Scopes::TWO_FA_PENDING;  // '2fa_pending'
-Scopes::EMAIL_VERIFY;    // 'email_verify'
-Scopes::SERVICE;         // 'service'
+Scope::Access->value;        // 'access'
+Scope::TwoFaPending->value;  // '2fa_pending'
+Scope::EmailVerify->value;   // 'email_verify'
+Scope::Service->value;       // 'service'
+
+Jwt::mint($subject, Scope::Access, ttl: 900);  // pass an enum case, or any string
 ```
 
 ### Verify a token offline
@@ -161,7 +166,9 @@ $claims->list('permissions');
 ```
 
 Invalid tokens throw a `RoundlyConsulting\Jwt\Jose\Exceptions\JwtException` subclass
-(`InvalidSignature`, `TokenExpired`, `AlgorithmMismatch`, `ClaimMismatch`, …).
+(`InvalidSignature`, `TokenExpired`, `AlgorithmMismatch`, `ClaimMismatch`, `UnexpectedTokenType`,
+`MalformedToken`, …). Minting a claim set that can't be JSON-encoded (e.g. non-UTF-8 bytes) throws
+`UnencodableClaims`, also a `JwtException` — so a single catch covers both minting and verifying.
 
 ### Wire the guards
 
