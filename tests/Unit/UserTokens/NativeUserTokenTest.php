@@ -10,7 +10,7 @@ use RoundlyConsulting\Jwt\Support\KeyRepository;
 use RoundlyConsulting\Jwt\UserTokens\AccessTokenRequest;
 use RoundlyConsulting\Jwt\UserTokens\NativeUserTokenIssuer;
 use RoundlyConsulting\Jwt\UserTokens\NativeUserTokenVerifier;
-use RoundlyConsulting\Jwt\UserTokens\Scopes;
+use RoundlyConsulting\Jwt\UserTokens\Scope;
 
 function keys(): KeyRepository
 {
@@ -75,7 +75,7 @@ it('mints an access token with the platform claim shape', function (): void {
         ->and($claims->int('tv'))->toBe(7)
         ->and($claims->list('permissions'))->toBe(['posts.view', 'posts.edit'])
         ->and($claims->int('org'))->toBe(42)
-        ->and($claims->string('scope'))->toBe(Scopes::ACCESS);
+        ->and($claims->string('scope'))->toBe(Scope::Access->value);
 });
 
 it('mints a challenge token that consumes the configured challenge ttl', function (): void {
@@ -83,7 +83,7 @@ it('mints a challenge token that consumes the configured challenge ttl', functio
 
     $claims = verifier()->verify($issued->token);
 
-    expect($claims->string('scope'))->toBe(Scopes::TWO_FA_PENDING)
+    expect($claims->string('scope'))->toBe(Scope::TwoFaPending->value)
         ->and($claims->string('sub'))->toBe('user-1')
         ->and($claims->string('method'))->toBe('totp')
         ->and($claims->int('exp'))->toBe(1_700_000_000 + 300)
@@ -95,7 +95,7 @@ it('mints an email-verify token that consumes the configured verify ttl', functi
 
     $claims = verifier()->verify($issued->token);
 
-    expect($claims->string('scope'))->toBe(Scopes::EMAIL_VERIFY)
+    expect($claims->string('scope'))->toBe(Scope::EmailVerify->value)
         ->and($claims->string('email'))->toBe('a@b.test')
         ->and($claims->int('exp'))->toBe(1_700_000_000 + 3600);
 });

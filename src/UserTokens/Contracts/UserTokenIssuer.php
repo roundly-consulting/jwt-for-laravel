@@ -6,15 +6,19 @@ namespace RoundlyConsulting\Jwt\UserTokens\Contracts;
 
 use RoundlyConsulting\Jwt\UserTokens\AccessTokenRequest;
 use RoundlyConsulting\Jwt\UserTokens\IssuedToken;
+use RoundlyConsulting\Jwt\UserTokens\Scope;
 
 interface UserTokenIssuer
 {
     /**
      * Mint a signed RS256 user token for the given subject and scope.
      *
+     * Pass a {@see Scope} case for a built-in scope, or any string for a custom
+     * one.
+     *
      * @param  array<string, mixed>  $extraClaims
      */
-    public function mint(string $subject, string $scope, int $ttl, array $extraClaims = []): IssuedToken;
+    public function mint(string $subject, Scope|string $scope, int $ttl, array $extraClaims = []): IssuedToken;
 
     /**
      * Mint an access token (`scope=access`) from a fluent request, using the

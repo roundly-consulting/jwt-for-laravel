@@ -45,11 +45,12 @@ final class NativeUserTokenIssuer implements UserTokenIssuer
         }
     }
 
-    public function mint(string $subject, string $scope, int $ttl, array $extraClaims = []): IssuedToken
+    public function mint(string $subject, Scope|string $scope, int $ttl, array $extraClaims = []): IssuedToken
     {
         $now = CarbonImmutable::now();
         $expiresAt = $now->addSeconds($ttl);
         $jti = (string) Str::uuid();
+        $scope = $scope instanceof Scope ? $scope->value : $scope;
 
         $claims = [
             ...$extraClaims,
@@ -72,16 +73,16 @@ final class NativeUserTokenIssuer implements UserTokenIssuer
 
     public function mintAccessToken(AccessTokenRequest $request): IssuedToken
     {
-        return $this->mint($request->subject, Scopes::ACCESS, $this->ttl, $request->toClaims());
+        return $this->mint($request->subject, Scope::Access, $this->ttl, $request->toClaims());
     }
 
     public function mintChallengeToken(string $subject, array $extraClaims = []): IssuedToken
     {
-        return $this->mint($subject, Scopes::TWO_FA_PENDING, $this->challengeTtl, $extraClaims);
+        return $this->mint($subject, Scope::TwoFaPending, $this->challengeTtl, $extraClaims);
     }
 
     public function mintEmailVerifyToken(string $subject, string $email): IssuedToken
     {
-        return $this->mint($subject, Scopes::EMAIL_VERIFY, $this->verifyTtl, ['email' => $email]);
+        return $this->mint($subject, Scope::EmailVerify, $this->verifyTtl, ['email' => $email]);
     }
 }

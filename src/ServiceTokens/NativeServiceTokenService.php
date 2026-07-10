@@ -22,7 +22,7 @@ use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenIssuer;
 use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenVerifier;
 use RoundlyConsulting\Jwt\ServiceTokens\Exceptions\ServiceAuthMisconfigured;
 use RoundlyConsulting\Jwt\UserTokens\IssuedToken;
-use RoundlyConsulting\Jwt\UserTokens\Scopes;
+use RoundlyConsulting\Jwt\UserTokens\Scope;
 
 /**
  * Mints and verifies HS256 machine-to-machine service tokens.
@@ -44,7 +44,7 @@ use RoundlyConsulting\Jwt\UserTokens\Scopes;
  */
 final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceTokenVerifier
 {
-    private const SCOPE = Scopes::SERVICE;
+    private const SCOPE = Scope::Service->value;
 
     /**
      * @param  array<string, string>  $secrets  per-issuer secrets; empty ⇒ shared `secret` mode

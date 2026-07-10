@@ -12,7 +12,7 @@ use RoundlyConsulting\Jwt\Events\UserTokenIssued;
 use RoundlyConsulting\Jwt\Facades\Jwt;
 use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenIssuer;
 use RoundlyConsulting\Jwt\UserTokens\AccessTokenRequest;
-use RoundlyConsulting\Jwt\UserTokens\Scopes;
+use RoundlyConsulting\Jwt\UserTokens\Scope;
 
 beforeEach(function (): void {
     CarbonImmutable::setTestNow(CarbonImmutable::createFromTimestamp(1_700_000_000));
@@ -40,7 +40,7 @@ it('dispatches UserTokenIssued when a user token is minted', function (): void {
     $issued = Jwt::mintAccessToken(AccessTokenRequest::for('user-1'));
 
     Event::assertDispatched(UserTokenIssued::class, fn (UserTokenIssued $e): bool => $e->subject === 'user-1'
-        && $e->scope === Scopes::ACCESS
+        && $e->scope === Scope::Access->value
         && $e->jti === $issued->jti
         && $e->expiresAt->equalTo($issued->expiresAt));
 });

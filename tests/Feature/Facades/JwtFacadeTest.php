@@ -13,7 +13,7 @@ use RoundlyConsulting\Jwt\ServiceTokens\NativeServiceTokenService;
 use RoundlyConsulting\Jwt\ServiceTokens\ServiceCaller;
 use RoundlyConsulting\Jwt\UserTokens\AccessTokenRequest;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
-use RoundlyConsulting\Jwt\UserTokens\Scopes;
+use RoundlyConsulting\Jwt\UserTokens\Scope;
 
 beforeEach(function (): void {
     CarbonImmutable::setTestNow(CarbonImmutable::createFromTimestamp(1_700_000_000));
@@ -48,13 +48,13 @@ it('mints and verifies an access token round-trip through the facade', function 
     $claims = Jwt::verify($issued->token);
 
     expect($claims->string('sub'))->toBe('user-1')
-        ->and($claims->string('scope'))->toBe(Scopes::ACCESS)
+        ->and($claims->string('scope'))->toBe(Scope::Access->value)
         ->and($claims->string('email'))->toBe('a@b.test');
 });
 
 it('mints challenge and email-verify tokens through the facade', function (): void {
-    expect(Jwt::verify(Jwt::mintChallengeToken('user-1')->token)->string('scope'))->toBe(Scopes::TWO_FA_PENDING)
-        ->and(Jwt::verify(Jwt::mintEmailVerifyToken('user-1', 'a@b.test')->token)->string('scope'))->toBe(Scopes::EMAIL_VERIFY);
+    expect(Jwt::verify(Jwt::mintChallengeToken('user-1')->token)->string('scope'))->toBe(Scope::TwoFaPending->value)
+        ->and(Jwt::verify(Jwt::mintEmailVerifyToken('user-1', 'a@b.test')->token)->string('scope'))->toBe(Scope::EmailVerify->value);
 });
 
 it('mints a generic token through the facade', function (): void {
