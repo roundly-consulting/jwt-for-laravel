@@ -8,6 +8,7 @@ use RoundlyConsulting\Jwt\Jose\Decoder;
 use RoundlyConsulting\Jwt\Jose\Encoder;
 use RoundlyConsulting\Jwt\Jose\Exceptions\ClaimMismatch;
 use RoundlyConsulting\Jwt\Jose\Exceptions\InvalidSignature;
+use RoundlyConsulting\Jwt\Jose\Exceptions\MalformedToken;
 use RoundlyConsulting\Jwt\Jose\Keys\HmacSecret;
 use RoundlyConsulting\Jwt\ServiceTokens\Exceptions\ServiceAuthMisconfigured;
 use RoundlyConsulting\Jwt\ServiceTokens\NativeServiceTokenService;
@@ -128,7 +129,7 @@ it('rejects a service token with an empty issuer', function (): void {
 
 it('raises a misconfiguration for a too-short shared secret, never a 401', function (): void {
     serviceService(secret: 'short')->issue();
-})->throws(ServiceAuthMisconfigured::class, 'at least 32 bytes');
+})->throws(ServiceAuthMisconfigured::class, 'at least 32 random bytes');
 
 it('raises a misconfiguration when issuing without any audience', function (): void {
     serviceService(defaultAudience: null)->issue();
@@ -168,7 +169,10 @@ it('rejects a token whose iss claims another issuer secret', function (): void {
     serviceService(secrets: ISSUER_SECRETS)->verify($token);
 })->throws(InvalidSignature::class);
 
-it('rejects an issuer with no configured secret in per-issuer mode', function (): void {
+it('rejects an unknown issuer as an invalid signature, not an enumeration oracle', function (): void {
+    // An unknown `iss` burns a full HMAC verification against a fixed dummy
+    // secret and fails as InvalidSignature — identical to a known issuer with a
+    // bad signature — so the configured issuer set can't be probed.
     $token = (new Encoder)->encode([
         'iss' => 'intruder',
         'aud' => 'auth',
@@ -177,7 +181,7 @@ it('rejects an issuer with no configured secret in per-issuer mode', function ()
     ], new HmacSecret(SERVICE_SECRET), Algorithm::HS256);
 
     serviceService(secrets: ISSUER_SECRETS)->verify($token);
-})->throws(ClaimMismatch::class, 'no configured secret');
+})->throws(InvalidSignature::class);
 
 it('ignores the shared secret when per-issuer secrets are configured', function (): void {
     // Signed with the shared secret while per-issuer mode is active — must fail.
@@ -194,3 +198,9 @@ it('ignores the shared secret when per-issuer secrets are configured', function 
 it('raises a misconfiguration when the own issuer is absent from the secret map', function (): void {
     serviceService(issuer: 'unmapped', secrets: ISSUER_SECRETS)->issue();
 })->throws(ServiceAuthMisconfigured::class, 'own issuer');
+
+it('rejects an oversized bearer string before decoding', function (): void {
+    $oversized = str_repeat('a', 9000).'.b.c';
+
+    serviceService()->verify($oversized);
+})->throws(MalformedToken::class, 'maximum permitted length');

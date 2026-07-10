@@ -47,6 +47,14 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
     private const SCOPE = Scope::Service->value;
 
     /**
+     * A fixed, high-entropy secret used only to burn an HMAC verification for an
+     * unknown issuer, so a known and an unknown `iss` do identical work and fail
+     * identically ({@see InvalidSignature}) — the issuer set can't be enumerated
+     * by timing or error reason. It never signs or verifies a real token.
+     */
+    private const DUMMY_SECRET = 'jwt-for-laravel/unknown-issuer/constant-time-burn/8f3c1a9e2b';
+
+    /**
      * @param  array<string, string>  $secrets  per-issuer secrets; empty ⇒ shared `secret` mode
      * @param  list<string>  $allowedIssuers  empty ⇒ any issuer accepted
      */
@@ -107,6 +115,13 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
             throw ServiceAuthMisconfigured::missingServiceName();
         }
 
+        // Reject oversized bearer strings before any base64/JSON work — a cheap
+        // bound on decode effort that never relies on the web server's header
+        // limits.
+        if (strlen($jwt) > Decoder::MAX_ENCODED_BYTES) {
+            throw new MalformedToken('The token exceeds the maximum permitted length.');
+        }
+
         $claims = $this->decoder->decode($jwt, $this->verificationSecret($jwt), Algorithm::HS256, $this->leeway);
 
         if ($claims->get('scope') !== self::SCOPE) {
@@ -157,9 +172,13 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
 
         $secret = $this->secrets[$this->unverifiedIssuer($jwt)] ?? null;
 
+        // Unknown issuer: return a fixed dummy secret so the decoder still runs
+        // one full HMAC verification (which cannot match) and fails with
+        // InvalidSignature — identical work and error to a known issuer with a
+        // bad signature. Throwing here instead would leak, via timing and the
+        // error reason, which issuer names are configured.
         if ($secret === null) {
-            // A caller error (unknown issuer), not an operator error → 401.
-            throw new ClaimMismatch('Service token issuer has no configured secret.');
+            return $this->hmac(self::DUMMY_SECRET);
         }
 
         return $this->hmac($secret);
