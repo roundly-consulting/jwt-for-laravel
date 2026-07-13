@@ -3,11 +3,11 @@
 declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
-use RoundlyConsulting\Jwt\Jose\Algorithm;
+use RoundlyConsulting\Crypto\Signature\Algorithm;
+use RoundlyConsulting\Crypto\Signature\Key\HmacSecret;
+use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
 use RoundlyConsulting\Jwt\Jose\Decoder;
 use RoundlyConsulting\Jwt\Jose\Exceptions\TokenExpired;
-use RoundlyConsulting\Jwt\Jose\Keys\HmacSecret;
-use RoundlyConsulting\Jwt\Jose\Keys\RsaPublicKey;
 
 afterEach(function (): void {
     CarbonImmutable::setTestNow();
@@ -21,8 +21,8 @@ it('agrees with each committed static token', function (string $file, array $met
 
     $algorithm = $meta['alg'] === 'RS256' ? Algorithm::RS256 : Algorithm::HS256;
     $key = $meta['key'] === 'rsa'
-        ? RsaPublicKey::fromPem(publicKeyPem())
-        : new HmacSecret(manifest()['hmac_secret']);
+        ? RsaKey::public(publicKeyPem())
+        : HmacSecret::fromString(manifest()['hmac_secret']);
 
     if ($meta['outcome'] === 'expired') {
         expect(fn () => $decoder->decode($token, $key, $algorithm, 0))->toThrow(TokenExpired::class);

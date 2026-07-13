@@ -2,8 +2,7 @@
 
 declare(strict_types=1);
 
-use RoundlyConsulting\Jwt\Jose\Keys\RsaPrivateKey;
-use RoundlyConsulting\Jwt\Jose\Keys\RsaPublicKey;
+use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
 
 beforeEach(function (): void {
     $this->dir = sys_get_temp_dir().'/jwt-keys-'.uniqid();
@@ -35,8 +34,8 @@ it('generates a usable 2048-bit RSA keypair', function (): void {
         ->and(is_file($this->public))->toBeTrue();
 
     // The keys parse as a valid RSA pair of the required size.
-    RsaPrivateKey::fromPem((string) file_get_contents($this->private));
-    RsaPublicKey::fromPem((string) file_get_contents($this->public));
+    RsaKey::private((string) file_get_contents($this->private));
+    RsaKey::public((string) file_get_contents($this->public));
 });
 
 it('writes the private key with 0600 permissions', function (): void {

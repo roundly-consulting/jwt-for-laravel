@@ -2,11 +2,12 @@
 
 declare(strict_types=1);
 
-use RoundlyConsulting\Jwt\Jose\Algorithm;
-use RoundlyConsulting\Jwt\Jose\Base64Url;
+use RoundlyConsulting\Crypto\Codec\Base64Url;
+use RoundlyConsulting\Crypto\Signature\Algorithm;
 use RoundlyConsulting\Jwt\Jose\Encoder;
 use RoundlyConsulting\Jwt\Jose\Exceptions\AlgorithmMismatch;
 use RoundlyConsulting\Jwt\Jose\Exceptions\JwtException;
+use RoundlyConsulting\Jwt\Jose\Exceptions\MalformedToken;
 use RoundlyConsulting\Jwt\Jose\Exceptions\UnencodableClaims;
 
 function decodeSegment(string $token, int $index): array
@@ -34,7 +35,7 @@ it('emits a kid header only when provided', function (): void {
     $withKid = (new Encoder)->encode([], rsaPrivateKey(), Algorithm::RS256, 'key-1');
     $withoutKid = (new Encoder)->encode([], rsaPrivateKey(), Algorithm::RS256);
 
-    expect(decodeSegment($withKid, 0))->toBe(['typ' => 'JWT', 'alg' => 'RS256', 'kid' => 'key-1'])
+    expect(decodeSegment($withKid, 0))->toBe(['typ' => 'JWT', 'kid' => 'key-1', 'alg' => 'RS256'])
         ->and(decodeSegment($withoutKid, 0))->not->toHaveKey('kid');
 });
 
@@ -57,6 +58,14 @@ it('surfaces the unencodable-claim error as a catchable JwtException', function 
     expect(fn () => (new Encoder)->encode(['bad' => "\xB1\x31"], rsaPrivateKey(), Algorithm::RS256))
         ->toThrow(JwtException::class);
 });
+
+it('rejects signing with an RSA public key', function (): void {
+    (new Encoder)->encode([], rsaPublicKey(), Algorithm::RS256);
+})->throws(MalformedToken::class, 'Failed to produce a RS256 signature');
+
+it('rejects an algorithm this package does not support', function (): void {
+    (new Encoder)->encode([], rsaPrivateKey(), Algorithm::ES256);
+})->throws(AlgorithmMismatch::class);
 
 it('is deterministic for the same claims and key', function (): void {
     $encoder = new Encoder;

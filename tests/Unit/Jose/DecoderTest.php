@@ -3,8 +3,9 @@
 declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
-use RoundlyConsulting\Jwt\Jose\Algorithm;
-use RoundlyConsulting\Jwt\Jose\Base64Url;
+use RoundlyConsulting\Crypto\Codec\Base64Url;
+use RoundlyConsulting\Crypto\Signature\Algorithm;
+use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
 use RoundlyConsulting\Jwt\Jose\Decoder;
 use RoundlyConsulting\Jwt\Jose\Encoder;
 use RoundlyConsulting\Jwt\Jose\Exceptions\AlgorithmMismatch;
@@ -208,3 +209,43 @@ it('rejects a payload that is a JSON array', function (): void {
 
     $this->decoder->decode($token, rsaPublicKey(), Algorithm::RS256, 0);
 })->throws(MalformedToken::class);
+
+it('rejects a header that is not valid JSON', function (): void {
+    $token = Base64Url::encode('{not json').'.'.Base64Url::encode('{"exp":1}').'.'.Base64Url::encode('sig');
+
+    $this->decoder->decode($token, rsaPublicKey(), Algorithm::RS256, 0);
+})->throws(MalformedToken::class, 'not valid JSON');
+
+// Strict base64url: a segment carrying standard-base64 characters or stray
+// padding must never silently decode into different bytes.
+it('rejects a segment that is not strict base64url', function (string $header): void {
+    $token = $header.'.'.Base64Url::encode('{"exp":1}').'.'.Base64Url::encode('sig');
+
+    $this->decoder->decode($token, rsaPublicKey(), Algorithm::RS256, 0);
+})->with(['plus' => 'ab+c', 'slash' => 'ab/c', 'padding' => 'YWI=', 'empty' => ''])
+    ->throws(MalformedToken::class);
+
+// The package pins itself to RS256 (user tokens) and HS256 (service tokens); no
+// other JOSE algorithm may be selected, even though the crypto package can sign
+// and verify them.
+it('rejects an algorithm this package does not support', function (): void {
+    $this->decoder->decode(rs256(['exp' => futureExp()]), rsaPublicKey(), Algorithm::ES256, 0);
+})->throws(AlgorithmMismatch::class);
+
+it('rejects an RS256 signature made with a different RSA key', function (): void {
+    // A well-formed RS256 token signed by a key the verifier does not trust.
+    $other = RsaKey::generate(2048);
+    $token = $this->encoder->encode(['sub' => 'a', 'exp' => futureExp()], $other, Algorithm::RS256);
+
+    $this->decoder->decode($token, rsaPublicKey(), Algorithm::RS256, 0);
+})->throws(InvalidSignature::class);
+
+it('rejects an HS256 token whose signature is one byte short', function (): void {
+    // A truncated MAC must fail the constant-time comparison, not pass a prefix
+    // match.
+    $token = $this->encoder->encode(['exp' => futureExp()], hmacSecret(), Algorithm::HS256);
+    [$h, $p, $s] = explode('.', $token);
+    $truncated = substr(Base64Url::decode($s), 0, -1);
+
+    $this->decoder->decode($h.'.'.$p.'.'.Base64Url::encode($truncated), hmacSecret(), Algorithm::HS256, 0);
+})->throws(InvalidSignature::class);

@@ -2,9 +2,8 @@
 
 declare(strict_types=1);
 
-use RoundlyConsulting\Jwt\Jose\Keys\HmacSecret;
-use RoundlyConsulting\Jwt\Jose\Keys\RsaPrivateKey;
-use RoundlyConsulting\Jwt\Jose\Keys\RsaPublicKey;
+use RoundlyConsulting\Crypto\Signature\Key\HmacSecret;
+use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
 use RoundlyConsulting\Jwt\Tests\ClaimAuthorizationTestCase;
 use RoundlyConsulting\Jwt\Tests\TestCase;
 
@@ -37,19 +36,19 @@ function publicKeyPem(): string
     return readFixture('keys/jwt-public.pem');
 }
 
-function rsaPrivateKey(): RsaPrivateKey
+function rsaPrivateKey(): RsaKey
 {
-    return RsaPrivateKey::fromPem(privateKeyPem());
+    return RsaKey::private(privateKeyPem());
 }
 
-function rsaPublicKey(): RsaPublicKey
+function rsaPublicKey(): RsaKey
 {
-    return RsaPublicKey::fromPem(publicKeyPem());
+    return RsaKey::public(publicKeyPem());
 }
 
 function hmacSecret(string $value = 'test-hmac-secret-value-0123456789ab'): HmacSecret
 {
-    return new HmacSecret($value);
+    return HmacSecret::fromString($value);
 }
 
 /**

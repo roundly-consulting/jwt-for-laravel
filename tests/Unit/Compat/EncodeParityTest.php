@@ -3,9 +3,9 @@
 declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
-use RoundlyConsulting\Jwt\Jose\Algorithm;
+use RoundlyConsulting\Crypto\Signature\Algorithm;
+use RoundlyConsulting\Crypto\Signature\Key\HmacSecret;
 use RoundlyConsulting\Jwt\Jose\Encoder;
-use RoundlyConsulting\Jwt\Jose\Keys\HmacSecret;
 
 afterEach(function (): void {
     CarbonImmutable::setTestNow();
@@ -21,7 +21,7 @@ it('reproduces each committed token byte-for-byte', function (string $file, arra
 
     $token = $meta['alg'] === 'RS256'
         ? $encoder->encode($meta['claims'], rsaPrivateKey(), Algorithm::RS256)
-        : $encoder->encode($meta['claims'], new HmacSecret(manifest()['hmac_secret']), Algorithm::HS256);
+        : $encoder->encode($meta['claims'], HmacSecret::fromString(manifest()['hmac_secret']), Algorithm::HS256);
 
     expect($token)->toBe(trim(readFixture('tokens/'.$file)));
 })->with(manifestCases());

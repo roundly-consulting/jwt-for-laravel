@@ -3,13 +3,13 @@
 declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
-use RoundlyConsulting\Jwt\Jose\Algorithm;
+use RoundlyConsulting\Crypto\Signature\Algorithm;
+use RoundlyConsulting\Crypto\Signature\Key\HmacSecret;
 use RoundlyConsulting\Jwt\Jose\Decoder;
 use RoundlyConsulting\Jwt\Jose\Encoder;
 use RoundlyConsulting\Jwt\Jose\Exceptions\ClaimMismatch;
 use RoundlyConsulting\Jwt\Jose\Exceptions\InvalidSignature;
 use RoundlyConsulting\Jwt\Jose\Exceptions\MalformedToken;
-use RoundlyConsulting\Jwt\Jose\Keys\HmacSecret;
 use RoundlyConsulting\Jwt\ServiceTokens\Exceptions\ServiceAuthMisconfigured;
 use RoundlyConsulting\Jwt\ServiceTokens\NativeServiceTokenService;
 
@@ -111,7 +111,7 @@ it('rejects a token that is not scoped to service', function (): void {
         'aud' => 'auth',
         'scope' => 'access',
         'exp' => 1_700_000_060,
-    ], new HmacSecret(SERVICE_SECRET), Algorithm::HS256);
+    ], HmacSecret::fromString(SERVICE_SECRET), Algorithm::HS256);
 
     serviceService()->verify($token);
 })->throws(ClaimMismatch::class, 'scope');
@@ -122,7 +122,7 @@ it('rejects a service token with an empty issuer', function (): void {
         'aud' => 'auth',
         'scope' => 'service',
         'exp' => 1_700_000_060,
-    ], new HmacSecret(SERVICE_SECRET), Algorithm::HS256);
+    ], HmacSecret::fromString(SERVICE_SECRET), Algorithm::HS256);
 
     serviceService()->verify($token);
 })->throws(ClaimMismatch::class, 'issuer is missing');
@@ -164,7 +164,7 @@ it('rejects a token whose iss claims another issuer secret', function (): void {
         'aud' => 'auth',
         'scope' => 'service',
         'exp' => 1_700_000_060,
-    ], new HmacSecret(ISSUER_SECRETS['geo']), Algorithm::HS256);
+    ], HmacSecret::fromString(ISSUER_SECRETS['geo']), Algorithm::HS256);
 
     serviceService(secrets: ISSUER_SECRETS)->verify($token);
 })->throws(InvalidSignature::class);
@@ -178,7 +178,7 @@ it('rejects an unknown issuer as an invalid signature, not an enumeration oracle
         'aud' => 'auth',
         'scope' => 'service',
         'exp' => 1_700_000_060,
-    ], new HmacSecret(SERVICE_SECRET), Algorithm::HS256);
+    ], HmacSecret::fromString(SERVICE_SECRET), Algorithm::HS256);
 
     serviceService(secrets: ISSUER_SECRETS)->verify($token);
 })->throws(InvalidSignature::class);
@@ -190,7 +190,7 @@ it('ignores the shared secret when per-issuer secrets are configured', function 
         'aud' => 'auth',
         'scope' => 'service',
         'exp' => 1_700_000_060,
-    ], new HmacSecret(SERVICE_SECRET), Algorithm::HS256);
+    ], HmacSecret::fromString(SERVICE_SECRET), Algorithm::HS256);
 
     serviceService(secrets: ISSUER_SECRETS)->verify($token);
 })->throws(InvalidSignature::class);
@@ -204,3 +204,25 @@ it('rejects an oversized bearer string before decoding', function (): void {
 
     serviceService()->verify($oversized);
 })->throws(MalformedToken::class, 'maximum permitted length');
+
+// Per-issuer mode reads `iss` from the unverified payload purely to select the
+// secret — a `kid` lookup. Malformed input must fail structurally, never select
+// a secret from garbage.
+it('rejects a malformed bearer string in per-issuer mode', function (string $token, string $reason): void {
+    expect(fn () => serviceService(secrets: ISSUER_SECRETS)->verify($token))
+        ->toThrow(MalformedToken::class, $reason);
+})->with([
+    'two segments' => ['a.b', 'exactly three segments'],
+    'payload is not base64url' => ['aGVhZGVy.not+base64url.c', 'not valid base64url'],
+    'payload is not json' => ['aGVhZGVy.bm90LWpzb24.c', 'not valid JSON'],
+]);
+
+it('rejects a token with no issuer in per-issuer mode', function (): void {
+    $token = (new Encoder)->encode([
+        'aud' => 'auth',
+        'scope' => 'service',
+        'exp' => 1_700_000_060,
+    ], HmacSecret::fromString(SERVICE_SECRET), Algorithm::HS256);
+
+    serviceService(secrets: ISSUER_SECRETS)->verify($token);
+})->throws(ClaimMismatch::class, 'issuer is missing');
