@@ -7,9 +7,12 @@
 # JWT for Laravel
 
 Native **RS256 user tokens** and **HS256 service tokens**, guard drivers, a jti denylist and
-claim-based authorization for Laravel — with **zero third-party crypto**. The entire JOSE core
-(compact JWS encode/verify, base64url, key handling) is implemented on top of PHP's own
-`ext-openssl`/`hash_hmac`; there is no third-party runtime JWT dependency of any kind.
+claim-based authorization for Laravel — with **zero third-party crypto**. The JOSE core (compact
+JWS sign/verify, base64url, RSA and HMAC key handling) comes from our own audited
+[`crypto-for-laravel`](https://github.com/roundly-consulting/crypto-for-laravel), which builds on
+PHP's own `ext-openssl`/`hash_hmac`; there is no third-party runtime JWT dependency of any kind.
+This package owns the JWT *policy* — claims, guards, denylist, service-token issuer binding — and
+nothing else.
 
 Two token families, strictly separated by algorithm and purpose:
 
@@ -32,6 +35,17 @@ missing key or secret can never masquerade as a silent 401.
 - PHP 8.4+
 - Laravel 12 or 13
 - `ext-openssl`, `ext-json`
+
+## Integrates with
+
+- **[`crypto-for-laravel`](https://github.com/roundly-consulting/crypto-for-laravel)** (hard
+  dependency) — supplies the compact-JWS serializer, the strict base64url codec, the RS256/HS256
+  signers and verifiers, and the RSA/HMAC key guards. It is zero-config: this package's own service
+  provider builds every keyed object from **`config/jwt.php`** (your PEM paths and secrets), so
+  nothing about your configuration changes. Crypto failures are translated at the boundary — you
+  keep catching `RoundlyConsulting\Jwt\Jose\Exceptions\*` exactly as before.
+- **[`enums-for-laravel`](https://github.com/roundly-consulting/enums-for-laravel)** — enum helpers
+  on `Scope`.
 
 ## Installation
 
@@ -288,9 +302,10 @@ Generates a 2048-bit RSA keypair; the private key is written with `0600` permiss
 
 The package is verification-compatible with standard JWS/JWT tokens, proven by committed static
 parity fixtures and the RFC 7515 example vectors under `tests/fixtures/` — **with zero third-party
-JWT or crypto libraries in `composer.json`** (an architecture test keeps `src/` and `tests/` free of
-any third-party JWT dependency by allow-listing only permitted vendor roots). The fixtures are a
-test aid, not a runtime dependency.
+JWT or crypto libraries in `composer.json`** (architecture tests keep `src/` free of any third-party
+JWT dependency by allow-listing only permitted vendor roots, and assert no crypto primitive is
+re-implemented here: signing, verification, HMAC and constant-time comparison may only come from
+`crypto-for-laravel`). The fixtures are a test aid, not a runtime dependency.
 
 ## Testing
 
