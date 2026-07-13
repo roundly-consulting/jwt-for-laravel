@@ -8,7 +8,6 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
 use RoundlyConsulting\Crypto\Exceptions\CryptoException;
 use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
-use RoundlyConsulting\Crypto\Signature\OpenSsl;
 
 /**
  * Generates a 2048-bit RSA keypair for signing (private) and verifying (public)
@@ -51,7 +50,7 @@ final class GenerateKeysCommand extends Command
 
         try {
             $keypair = RsaKey::generate(2048);
-            $privateKey = OpenSsl::exportPrivatePem($keypair->key);
+            $privateKey = $keypair->privatePem();
             $publicKey = $keypair->publicPem();
         } catch (CryptoException $e) {
             $this->components->error("Failed to generate an RSA keypair: {$e->getMessage()}");
