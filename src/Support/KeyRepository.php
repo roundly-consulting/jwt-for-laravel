@@ -4,22 +4,25 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Jwt\Support;
 
+use RoundlyConsulting\Crypto\Exceptions\CryptoException;
+use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
 use RoundlyConsulting\Jwt\Jose\Exceptions\KeyLoadFailed;
-use RoundlyConsulting\Jwt\Jose\Keys\RsaPrivateKey;
-use RoundlyConsulting\Jwt\Jose\Keys\RsaPublicKey;
 
 /**
  * Loads and caches the configured RSA keys from disk on first use.
  *
  * Verify-only applications configure a public key path only; issuers configure
  * both. Keys are parsed lazily so a misconfigured path fails at token time with
- * an actionable message rather than at boot.
+ * an actionable message rather than at boot. The PEM parsing and the key guards
+ * (a real RSA key, at least 2048 bits, a sane exponent) are crypto-for-laravel's;
+ * every failure is re-wrapped as {@see KeyLoadFailed} so hosts keep catching one
+ * exception for "the configured JWT key is unusable".
  */
 final class KeyRepository
 {
-    private ?RsaPrivateKey $privateKey = null;
+    private ?RsaKey $privateKey = null;
 
-    private ?RsaPublicKey $publicKey = null;
+    private ?RsaKey $publicKey = null;
 
     public function __construct(
         private readonly ?string $privateKeyPath,
@@ -29,9 +32,9 @@ final class KeyRepository
     /**
      * @throws KeyLoadFailed
      */
-    public function privateKey(): RsaPrivateKey
+    public function privateKey(): RsaKey
     {
-        if ($this->privateKey instanceof RsaPrivateKey) {
+        if ($this->privateKey instanceof RsaKey) {
             return $this->privateKey;
         }
 
@@ -39,17 +42,24 @@ final class KeyRepository
             throw KeyLoadFailed::privateKeyNotConfigured();
         }
 
-        return $this->privateKey = RsaPrivateKey::fromPem(
-            $this->read($this->privateKeyPath, fn (): KeyLoadFailed => KeyLoadFailed::privateKeyMissing($this->privateKeyPath ?? '')),
+        $pem = $this->read(
+            $this->privateKeyPath,
+            fn (): KeyLoadFailed => KeyLoadFailed::privateKeyMissing($this->privateKeyPath ?? ''),
         );
+
+        try {
+            return $this->privateKey = RsaKey::private($pem);
+        } catch (CryptoException $e) {
+            throw KeyLoadFailed::unusable('private', $e);
+        }
     }
 
     /**
      * @throws KeyLoadFailed
      */
-    public function publicKey(): RsaPublicKey
+    public function publicKey(): RsaKey
     {
-        if ($this->publicKey instanceof RsaPublicKey) {
+        if ($this->publicKey instanceof RsaKey) {
             return $this->publicKey;
         }
 
@@ -57,9 +67,16 @@ final class KeyRepository
             throw KeyLoadFailed::publicKeyNotConfigured();
         }
 
-        return $this->publicKey = RsaPublicKey::fromPem(
-            $this->read($this->publicKeyPath, fn (): KeyLoadFailed => KeyLoadFailed::publicKeyMissing($this->publicKeyPath ?? '')),
+        $pem = $this->read(
+            $this->publicKeyPath,
+            fn (): KeyLoadFailed => KeyLoadFailed::publicKeyMissing($this->publicKeyPath ?? ''),
         );
+
+        try {
+            return $this->publicKey = RsaKey::public($pem);
+        } catch (CryptoException $e) {
+            throw KeyLoadFailed::unusable('public', $e);
+        }
     }
 
     /**

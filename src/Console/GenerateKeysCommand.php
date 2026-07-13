@@ -6,11 +6,17 @@ namespace RoundlyConsulting\Jwt\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
+use RoundlyConsulting\Crypto\Exceptions\CryptoException;
+use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
+use RoundlyConsulting\Crypto\Signature\OpenSsl;
 
 /**
  * Generates a 2048-bit RSA keypair for signing (private) and verifying (public)
  * RS256 user tokens. Refuses to overwrite existing keys without `--force`; the
  * private key is written with 0600 permissions.
+ *
+ * The keypair itself comes from crypto-for-laravel, so the generated key passes
+ * exactly the guards the verifier applies (real RSA, ≥2048 bits, sane exponent).
  */
 final class GenerateKeysCommand extends Command
 {
@@ -43,29 +49,12 @@ final class GenerateKeysCommand extends Command
             return self::FAILURE;
         }
 
-        $resource = openssl_pkey_new([
-            'private_key_bits' => 2048,
-            'private_key_type' => OPENSSL_KEYTYPE_RSA,
-        ]);
-
-        if ($resource === false) {
-            $this->components->error('Failed to generate an RSA keypair via OpenSSL.');
-
-            return self::FAILURE;
-        }
-
-        $privateKey = '';
-
-        if (openssl_pkey_export($resource, $privateKey) === false) {
-            $this->components->error('Failed to export the generated private key.');
-
-            return self::FAILURE;
-        }
-
-        $details = openssl_pkey_get_details($resource);
-
-        if ($details === false || ! isset($details['key']) || ! is_string($details['key'])) {
-            $this->components->error('Failed to extract the public key from the generated keypair.');
+        try {
+            $keypair = RsaKey::generate(2048);
+            $privateKey = OpenSsl::exportPrivatePem($keypair->key);
+            $publicKey = $keypair->publicPem();
+        } catch (CryptoException $e) {
+            $this->components->error("Failed to generate an RSA keypair: {$e->getMessage()}");
 
             return self::FAILURE;
         }
@@ -87,7 +76,7 @@ final class GenerateKeysCommand extends Command
             return self::FAILURE;
         }
 
-        if (file_put_contents($publicPath, $details['key']) === false) {
+        if (file_put_contents($publicPath, $publicKey) === false) {
             $this->components->error("Unable to write the public key to [{$publicPath}].");
 
             return self::FAILURE;

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Jwt\Jose\Exceptions;
 
+use RoundlyConsulting\Crypto\Exceptions\CryptoException;
+
 final class KeyLoadFailed extends JwtException
 {
     public static function privateKeyMissing(string $path): self
@@ -34,18 +36,16 @@ final class KeyLoadFailed extends JwtException
         );
     }
 
-    public static function unreadable(string $kind, string $path): self
+    /**
+     * The configured PEM was rejected by the crypto package — it is not a valid
+     * PEM, not an RSA key, or too weak. RS256 requires an RSA key of at least
+     * 2048 bits; the crypto message states the precise reason.
+     */
+    public static function unusable(string $kind, CryptoException $previous): self
     {
-        return new self("Unable to load the {$kind} JWT key from [{$path}]: it is not a valid PEM.");
-    }
-
-    public static function notRsa(string $kind): self
-    {
-        return new self("The configured {$kind} JWT key is not an RSA key; RS256 requires RSA.");
-    }
-
-    public static function tooSmall(string $kind, int $bits): self
-    {
-        return new self("The {$kind} RSA JWT key is {$bits} bits; a minimum of 2048 bits is required.");
+        return new self(
+            "The configured {$kind} JWT key is unusable: {$previous->getMessage()} RS256 requires an RSA key of a minimum of 2048 bits.",
+            previous: $previous,
+        );
     }
 }

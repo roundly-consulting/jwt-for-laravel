@@ -4,94 +4,65 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Jwt\Jose;
 
-use JsonException;
+use RoundlyConsulting\Crypto\Exceptions\CryptoException;
+use RoundlyConsulting\Crypto\Jose\Jws;
+use RoundlyConsulting\Crypto\Jose\MalformedTokenException;
+use RoundlyConsulting\Crypto\Signature\Algorithm;
+use RoundlyConsulting\Crypto\Signature\Hs;
+use RoundlyConsulting\Crypto\Signature\Key\HmacSecret;
+use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
+use RoundlyConsulting\Crypto\Signature\Rs;
+use RoundlyConsulting\Crypto\Signature\Signer;
 use RoundlyConsulting\Jwt\Jose\Exceptions\AlgorithmMismatch;
 use RoundlyConsulting\Jwt\Jose\Exceptions\MalformedToken;
 use RoundlyConsulting\Jwt\Jose\Exceptions\UnencodableClaims;
-use RoundlyConsulting\Jwt\Jose\Keys\HmacSecret;
-use RoundlyConsulting\Jwt\Jose\Keys\RsaPrivateKey;
 
 /**
  * Serialises a claim set into a compact JWS (`header.payload.signature`).
  *
- * The key type and the algorithm are checked against each other, so an RS256
- * token can only ever be produced with an RSA private key and an HS256 token
- * only with an HMAC secret.
+ * The JWS serialisation and the signature math live in crypto-for-laravel; this
+ * class is the package boundary. It pairs the key with the algorithm — so an
+ * RS256 token can only ever be produced with an RSA private key and an HS256
+ * token only with an HMAC secret — pins the package to its two supported
+ * algorithms, and re-wraps every crypto failure as the JWT exception callers
+ * already catch.
  */
-final class Encoder
+final readonly class Encoder
 {
+    public function __construct(private Jws $jws = new Jws) {}
+
     /**
      * @param  array<string, mixed>  $claims
      *
      * @throws AlgorithmMismatch when the key type does not match the algorithm.
      * @throws UnencodableClaims when a claim value cannot be encoded to JSON.
+     * @throws MalformedToken when the signature cannot be produced.
      */
-    public function encode(array $claims, RsaPrivateKey|HmacSecret $key, Algorithm $alg, ?string $kid = null): string
+    public function encode(array $claims, RsaKey|HmacSecret $key, Algorithm $alg, ?string $kid = null): string
     {
-        $header = ['typ' => 'JWT', 'alg' => $alg->value];
+        $signer = $this->signer($key, $alg);
 
-        if ($kid !== null) {
-            $header['kid'] = $kid;
+        try {
+            return $this->jws->sign($kid === null ? [] : ['kid' => $kid], $claims, $signer);
+        } catch (CryptoException $e) {
+            // A claim carrying non-UTF-8 bytes surfaces as a malformed token from
+            // crypto; anything else here is a signing failure (a public key, or
+            // OpenSSL itself). Either way it stays inside this package's contract.
+            throw $e instanceof MalformedTokenException
+                ? new UnencodableClaims('A claim value could not be encoded to JSON.', previous: $e)
+                : new MalformedToken("Failed to produce a {$alg->value} signature.", previous: $e);
         }
-
-        $segments = [
-            Base64Url::encode($this->json($header)),
-            Base64Url::encode($this->json($claims)),
-        ];
-
-        $signature = $this->sign(implode('.', $segments), $key, $alg);
-
-        $segments[] = Base64Url::encode($signature);
-
-        return implode('.', $segments);
-    }
-
-    private function sign(string $input, RsaPrivateKey|HmacSecret $key, Algorithm $alg): string
-    {
-        if ($alg === Algorithm::RS256 && $key instanceof RsaPrivateKey) {
-            return $this->signRsa($input, $key);
-        }
-
-        if ($alg === Algorithm::HS256 && $key instanceof HmacSecret) {
-            return hash_hmac('sha256', $input, $key->value, true);
-        }
-
-        throw new AlgorithmMismatch("Key type is not valid for algorithm [{$alg->value}].");
-    }
-
-    private function signRsa(string $input, RsaPrivateKey $key): string
-    {
-        $signature = '';
-
-        if (openssl_sign($input, $signature, $key->key, OPENSSL_ALGO_SHA256) === false) {
-            self::drainOpenSslErrors();
-
-            throw new MalformedToken('Failed to produce an RS256 signature.');
-        }
-
-        return $signature;
     }
 
     /**
-     * @param  array<string, mixed>  $data
+     * @throws AlgorithmMismatch
      */
-    private function json(array $data): string
+    private function signer(RsaKey|HmacSecret $key, Algorithm $alg): Signer
     {
-        try {
-            // JSON_UNESCAPED_SLASHES keeps byte output identical to the reference
-            // encoder so pre-captured parity fixtures reproduce exactly.
-            return json_encode($data, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-        } catch (JsonException $e) {
-            // A bare JsonException would escape the package hierarchy; rethrow it
-            // as a JwtException so minting fails inside the package's contract.
-            throw new UnencodableClaims('A claim value could not be encoded to JSON.', previous: $e);
-        }
-    }
-
-    private static function drainOpenSslErrors(): void
-    {
-        while (openssl_error_string() !== false) {
-            // Empty the queue so a later, unrelated call isn't blamed for it.
-        }
+        return match (true) {
+            $alg === Algorithm::RS256 && $key instanceof RsaKey => new Rs($key),
+            $alg === Algorithm::HS256 && $key instanceof HmacSecret => new Hs($key),
+            default => throw new AlgorithmMismatch("Key type is not valid for algorithm [{$alg->value}]."),
+        };
     }
 }

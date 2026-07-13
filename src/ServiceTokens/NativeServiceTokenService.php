@@ -8,19 +8,21 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Str;
 use JsonException;
+use RoundlyConsulting\Crypto\Codec\Base64Url;
+use RoundlyConsulting\Crypto\Codec\InvalidEncodingException;
+use RoundlyConsulting\Crypto\Signature\Algorithm;
+use RoundlyConsulting\Crypto\Signature\Key\HmacSecret;
 use RoundlyConsulting\Jwt\Events\ServiceTokenIssued;
-use RoundlyConsulting\Jwt\Jose\Algorithm;
-use RoundlyConsulting\Jwt\Jose\Base64Url;
 use RoundlyConsulting\Jwt\Jose\Claims;
 use RoundlyConsulting\Jwt\Jose\Decoder;
 use RoundlyConsulting\Jwt\Jose\Encoder;
 use RoundlyConsulting\Jwt\Jose\Exceptions\ClaimMismatch;
 use RoundlyConsulting\Jwt\Jose\Exceptions\JwtException;
 use RoundlyConsulting\Jwt\Jose\Exceptions\MalformedToken;
-use RoundlyConsulting\Jwt\Jose\Keys\HmacSecret;
 use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenIssuer;
 use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenVerifier;
 use RoundlyConsulting\Jwt\ServiceTokens\Exceptions\ServiceAuthMisconfigured;
+use RoundlyConsulting\Jwt\Support\HmacSecretFactory;
 use RoundlyConsulting\Jwt\UserTokens\IssuedToken;
 use RoundlyConsulting\Jwt\UserTokens\Scope;
 
@@ -200,6 +202,8 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
 
         try {
             $payload = json_decode(Base64Url::decode($parts[1]), true, 512, JSON_THROW_ON_ERROR);
+        } catch (InvalidEncodingException) {
+            throw new MalformedToken('The token payload is not valid base64url.');
         } catch (JsonException) {
             throw new MalformedToken('The token payload is not valid JSON.');
         }
@@ -226,13 +230,14 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
     }
 
     /**
-     * A config-supplied secret that fails {@see HmacSecret}'s own guards (PEM,
-     * too short) is an operator error, so it surfaces as a 500 — never a 401.
+     * A config-supplied secret that fails the {@see HmacSecret} guards (PEM,
+     * too short, no entropy) is an operator error, so it surfaces as a 500 —
+     * never a 401.
      */
     private function hmac(#[\SensitiveParameter] string $value): HmacSecret
     {
         try {
-            return new HmacSecret($value);
+            return HmacSecretFactory::make($value);
         } catch (JwtException $e) {
             throw ServiceAuthMisconfigured::invalidSecret($e->getMessage());
         }

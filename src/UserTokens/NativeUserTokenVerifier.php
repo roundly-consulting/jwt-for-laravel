@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Jwt\UserTokens;
 
+use RoundlyConsulting\Crypto\Signature\Algorithm;
 use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
-use RoundlyConsulting\Jwt\Jose\Algorithm;
 use RoundlyConsulting\Jwt\Jose\Claims;
 use RoundlyConsulting\Jwt\Jose\Decoder;
 use RoundlyConsulting\Jwt\Jose\Exceptions\ClaimMismatch;
