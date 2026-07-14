@@ -12,7 +12,6 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\Jwt\Console\GenerateKeysCommand;
 use RoundlyConsulting\Jwt\Denylist\CacheDenylist;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
@@ -31,12 +30,35 @@ use RoundlyConsulting\Jwt\UserTokens\JwtGuard;
 use RoundlyConsulting\Jwt\UserTokens\NativeUserTokenIssuer;
 use RoundlyConsulting\Jwt\UserTokens\NativeUserTokenVerifier;
 use RoundlyConsulting\Jwt\UserTokens\TokenUser;
+use RoundlyConsulting\PackageToolkit\Package;
+use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
 
-final class JwtServiceProvider extends ServiceProvider
+final class JwtServiceProvider extends PackageServiceProvider
 {
+    public function configurePackage(Package $package): void
+    {
+        $package
+            ->name('jwt')
+            ->hasConfigFile()
+            ->hasCommands([GenerateKeysCommand::class])
+            ->contributesToAbout(static fn (): array => [
+                // Booleans and algorithm names only — never key material, a
+                // secret, or a path that would point at one.
+                'User tokens' => 'RS256',
+                'Signing key' => self::configured('jwt.private_key_path'),
+                'Verification key' => self::configured('jwt.public_key_path'),
+                'Issuer' => self::configured('jwt.issuer'),
+                'Audience' => self::configured('jwt.audience'),
+                'Access token TTL' => self::seconds('jwt.ttl'),
+                'Service tokens' => self::serviceTokenMode(),
+                'Denylist check' => (bool) config('jwt.guard.check_denylist') ? 'ON' : 'OFF',
+                'Claim authorization' => (bool) config('jwt.authorize_from_claims') ? 'ON' : 'OFF',
+            ]);
+    }
+
     public function register(): void
     {
-        $this->mergeConfigFrom(__DIR__.'/../config/jwt.php', 'jwt');
+        parent::register();
 
         $this->app->singleton(Encoder::class);
         $this->app->singleton(Decoder::class);
@@ -95,17 +117,47 @@ final class JwtServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        parent::boot();
+
         $this->registerUserGuard();
         $this->registerServiceGuard();
         $this->registerClaimAuthorization();
+    }
 
-        if ($this->app->runningInConsole()) {
-            $this->commands([GenerateKeysCommand::class]);
+    /**
+     * Whether a config key holds a non-empty string, without ever echoing the
+     * value itself (keys, secrets and key paths are all sensitive here).
+     */
+    private static function configured(string $key): string
+    {
+        $value = config($key);
 
-            $this->publishes([
-                __DIR__.'/../config/jwt.php' => config_path('jwt.php'),
-            ], 'jwt-config');
+        return is_string($value) && trim($value) !== '' ? 'SET' : 'MISSING';
+    }
+
+    private static function seconds(string $key): string
+    {
+        $value = config($key);
+
+        return is_numeric($value) ? ((int) $value).'s' : 'DEFAULT';
+    }
+
+    /**
+     * The HS256 keying mode a host has actually configured: per-issuer secrets
+     * override the single shared secret, and neither one means service tokens
+     * cannot be issued or verified at all.
+     */
+    private static function serviceTokenMode(): string
+    {
+        if (self::configured('jwt.service.secrets') === 'SET') {
+            return 'HS256 (per-issuer secrets)';
         }
+
+        if (self::configured('jwt.service.secret') === 'SET') {
+            return 'HS256 (shared secret)';
+        }
+
+        return 'HS256 (no secret)';
     }
 
     private function registerUserGuard(): void

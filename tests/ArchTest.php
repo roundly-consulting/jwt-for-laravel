@@ -12,10 +12,10 @@ arch('src only uses allowed vendor roots')
         'RoundlyConsulting\Jwt',
         'RoundlyConsulting\Crypto',
         'RoundlyConsulting\Enums',
+        'RoundlyConsulting\PackageToolkit',
         'Illuminate',
         'Carbon',
         'config',
-        'config_path',
     ]);
 
 arch('test support only uses allowed vendor roots')
