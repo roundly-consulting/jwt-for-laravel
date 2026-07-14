@@ -46,6 +46,13 @@ missing key or secret can never masquerade as a silent 401.
   keep catching `RoundlyConsulting\Jwt\Jose\Exceptions\*` exactly as before.
 - **[`enums-for-laravel`](https://github.com/roundly-consulting/enums-for-laravel)** — enum helpers
   on `Scope`.
+- **[`package-toolkit-for-laravel`](https://github.com/roundly-consulting/package-toolkit-for-laravel)**
+  — the service-provider bootstrapper. The config file, its `jwt-config` publish tag and the
+  `jwt:generate-keys` command are declared through it, and it adds a `Jwt` section to
+  `php artisan about` (`php artisan about --only=jwt`) reporting the algorithms, whether the signing
+  key, verification key, issuer, audience and service secret are **SET** or **MISSING**, the access
+  token TTL, and whether the denylist check and claim authorization are on. It never prints key
+  material, secrets or key paths.
 
 ## Installation
 

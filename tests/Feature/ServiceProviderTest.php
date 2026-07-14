@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\Jwt\Denylist\CacheDenylist;
@@ -125,4 +126,69 @@ it('publishes the config under the jwt-config tag', function (): void {
     $groups = ServiceProvider::$publishGroups;
 
     expect($groups)->toHaveKey('jwt-config');
+});
+
+it('registers the key-generation command', function (): void {
+    expect(array_keys(Artisan::all()))->toContain('jwt:generate-keys');
+});
+
+it('reports the token setup in about, without leaking key material', function (): void {
+    config([
+        'jwt.private_key_path' => '/secret/place/jwt-private.pem',
+        'jwt.public_key_path' => '/secret/place/jwt-public.pem',
+        'jwt.issuer' => 'jwt-issuer',
+        'jwt.audience' => 'web',
+        'jwt.ttl' => 900,
+        'jwt.service.secret' => 'unit-test-service-secret-0123456789ab',
+        'jwt.service.secrets' => null,
+        'jwt.guard.check_denylist' => true,
+        'jwt.authorize_from_claims' => true,
+    ]);
+
+    $this->artisan('about --only=jwt')
+        ->expectsOutputToContain('RS256')
+        ->expectsOutputToContain('HS256 (shared secret)')
+        ->expectsOutputToContain('900s')
+        ->assertSuccessful();
+
+    // The section reports presence, never the path, the key, or the secret.
+    Artisan::call('about --only=jwt');
+    $output = Artisan::output();
+
+    expect($output)->toContain('SET')
+        ->and($output)->not->toContain('/secret/place')
+        ->and($output)->not->toContain('unit-test-service-secret');
+});
+
+it('flags a missing key, issuer, audience and service secret in about', function (): void {
+    config([
+        'jwt.private_key_path' => null,
+        'jwt.public_key_path' => '',
+        'jwt.issuer' => null,
+        'jwt.audience' => null,
+        'jwt.ttl' => 'nonsense',
+        'jwt.service.secret' => null,
+        'jwt.service.secrets' => null,
+        'jwt.guard.check_denylist' => false,
+        'jwt.authorize_from_claims' => false,
+    ]);
+
+    Artisan::call('about --only=jwt');
+    $output = Artisan::output();
+
+    expect($output)->toContain('MISSING')
+        ->and($output)->toContain('HS256 (no secret)')
+        ->and($output)->toContain('DEFAULT')
+        ->and($output)->toContain('OFF');
+});
+
+it('prefers per-issuer secrets over the shared secret in about', function (): void {
+    config([
+        'jwt.service.secret' => 'unit-test-service-secret-0123456789ab',
+        'jwt.service.secrets' => 'logger:per-issuer-secret-for-logger-0123456789',
+    ]);
+
+    Artisan::call('about --only=jwt');
+
+    expect(Artisan::output())->toContain('HS256 (per-issuer secrets)');
 });
