@@ -145,19 +145,18 @@ it('reports the token setup in about, without leaking key material', function ()
         'jwt.authorize_from_claims' => true,
     ]);
 
-    $this->artisan('about --only=jwt')
-        ->expectsOutputToContain('RS256')
-        ->expectsOutputToContain('HS256 (shared secret)')
-        ->expectsOutputToContain('900s')
-        ->assertSuccessful();
-
     // The section reports presence, never the path, the key, or the secret.
-    Artisan::call('about --only=jwt');
-    $output = Artisan::output();
-
-    expect($output)->toContain('SET')
-        ->and($output)->not->toContain('/secret/place')
-        ->and($output)->not->toContain('unit-test-service-secret');
+    // `mustRender` is the positive proof the capture is real: a negative-only
+    // leak check passes just as happily against empty output.
+    expect('jwt')->toLeakNoSecrets(
+        secrets: [
+            '/secret/place/jwt-private.pem',
+            '/secret/place/jwt-public.pem',
+            '/secret/place',
+            'unit-test-service-secret-0123456789ab',
+        ],
+        mustRender: ['RS256', 'HS256 (shared secret)', '900s', 'SET'],
+    );
 });
 
 it('flags a missing key, issuer, audience and service secret in about', function (): void {
