@@ -10,8 +10,11 @@ namespace RoundlyConsulting\Jwt\Tests;
  */
 abstract class ClaimAuthorizationTestCase extends TestCase
 {
-    protected function defineEnvironment($app): void
+    /**
+     * @return array<string, mixed>
+     */
+    protected function configBeforeBoot(): array
     {
-        $app['config']->set('jwt.authorize_from_claims', true);
+        return ['jwt.authorize_from_claims' => true];
     }
 }

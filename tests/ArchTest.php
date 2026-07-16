@@ -2,6 +2,41 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Jwt\Jose\Exceptions\JwtException;
+use RoundlyConsulting\Jwt\UserTokens\TokenUser;
+use RoundlyConsulting\Testing\Arch\ArchPresets;
+
+// ── Shared presets ───────────────────────────────────────────────────────────
+
+ArchPresets::strictTypes('RoundlyConsulting\Jwt');
+
+// Two intentional extension points are exempt: TokenUser, which
+// `jwt.guard.identity` invites a host to subclass (pinned by the preset below
+// instead), and JwtException, the base every JOSE error extends so a host can
+// catch token failures uniformly.
+ArchPresets::finalByDefault('RoundlyConsulting\Jwt')
+    ->ignoring([TokenUser::class, JwtException::class]);
+
+ArchPresets::swappableModelsAreNotFinal([TokenUser::class => 'jwt.guard.identity']);
+
+// Every cryptographic primitive comes from crypto-for-laravel — never a
+// third-party JOSE/JWT library, and never a hand-rolled copy back inside this
+// package. Signing, verification, HMAC and constant-time comparison must not be
+// re-implemented here.
+ArchPresets::noLocalCryptoPrimitives('RoundlyConsulting\Jwt');
+
+ArchPresets::runtimeRequireIsWhitelisted(__DIR__.'/../composer.json');
+
+ArchPresets::noDebuggingLeftovers();
+
+// `modelsResolveThroughSeam` is deliberately NOT adopted: jwt ships no Eloquent
+// model and no `*_model` config key, so its stray-literal half is inert here —
+// and its late-static-binding half would forbid the `new static` in
+// TokenUser::fromClaims() that is precisely what makes `jwt.guard.identity`
+// honour a host swap (see tests/Feature/IdentitySwapTest.php).
+
+// ── jwt-specific rules the presets don't express ─────────────────────────────
+
 // Guard against any third-party JWT/crypto dependency by allow-listing only the
 // permitted vendor roots (roundly + Laravel/Symfony runtime). Our own
 // crypto-for-laravel is allowed — it owns the JOSE/signature/codec primitives —
@@ -20,25 +55,12 @@ arch('src only uses allowed vendor roots')
 
 arch('test support only uses allowed vendor roots')
     ->expect('RoundlyConsulting\Jwt\Tests')
-    ->toOnlyUse(['RoundlyConsulting\Jwt', 'RoundlyConsulting\Crypto', 'Illuminate', 'Orchestra\Testbench']);
-
-// Every cryptographic primitive comes from crypto-for-laravel — never a
-// third-party JOSE/JWT library, and never a hand-rolled copy back inside this
-// package. Signing, verification, HMAC and constant-time comparison must not be
-// re-implemented here.
-arch('no crypto primitive is re-implemented locally')
-    ->expect('RoundlyConsulting\Jwt')
-    ->not->toUse([
-        'hash_hmac',
-        'hash_equals',
-        'openssl_sign',
-        'openssl_verify',
-        'openssl_pkey_new',
-        'openssl_pkey_get_private',
-        'openssl_pkey_get_public',
-        'openssl_pkey_get_details',
-        'base64_encode',
-        'base64_decode',
+    ->toOnlyUse([
+        'RoundlyConsulting\Jwt',
+        'RoundlyConsulting\Crypto',
+        'RoundlyConsulting\Testing',
+        'Illuminate',
+        'Orchestra\Testbench',
     ]);
 
 // Only crypto's PUBLIC surface is ours to use. `Signature\OpenSsl` is tagged
@@ -92,10 +114,6 @@ it('imports no crypto class tagged @internal', function (): void {
         }
     }
 });
-
-arch('every source file declares strict types')
-    ->expect('RoundlyConsulting\Jwt')
-    ->toUseStrictTypes();
 
 arch('exceptions live in an Exceptions namespace')
     ->expect('RoundlyConsulting\Jwt\Jose\Exceptions')

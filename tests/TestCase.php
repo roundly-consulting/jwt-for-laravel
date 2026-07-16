@@ -4,32 +4,18 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Jwt\Tests;
 
-use Orchestra\Testbench\TestCase as Orchestra;
+use Illuminate\Support\ServiceProvider;
+use RoundlyConsulting\Crypto\CryptoServiceProvider;
 use RoundlyConsulting\Jwt\JwtServiceProvider;
+use RoundlyConsulting\Testing\PackageTestCase;
 
-abstract class TestCase extends Orchestra
+abstract class TestCase extends PackageTestCase
 {
     /**
-     * @return array<int, class-string>
+     * @return list<class-string<ServiceProvider>>
      */
-    protected function getPackageProviders($app): array
+    protected function packageProviders(): array
     {
-        return [JwtServiceProvider::class];
-    }
-
-    protected function fixturePath(string $path): string
-    {
-        return __DIR__.'/Fixtures/'.ltrim($path, '/');
-    }
-
-    protected function fixture(string $path): string
-    {
-        $contents = file_get_contents($this->fixturePath($path));
-
-        if ($contents === false) {
-            throw new \RuntimeException("Missing fixture: {$path}");
-        }
-
-        return $contents;
+        return [CryptoServiceProvider::class, JwtServiceProvider::class];
     }
 }
