@@ -16,8 +16,16 @@ use RoundlyConsulting\Jwt\UserTokens\Contracts\ClaimsAuthenticatable;
  * Carries the verified token's claims and exposes the `sub` as the auth
  * identifier plus a `permissions`-claim membership check that the optional
  * `Gate::before` hook consults.
+ *
+ * Deliberately not `final`: `jwt.guard.identity` invites a host to swap this
+ * class for its own, and extending the shipped identity is the obvious way to
+ * do that.
+ *
+ * @phpstan-consistent-constructor A subclass inherits `fromClaims()`, which
+ * builds it with `new static` — so its constructor must keep this signature.
+ * Override `fromClaims()` too if you need a different one.
  */
-final class TokenUser implements Authorizable, ChecksPermissions, ClaimsAuthenticatable
+class TokenUser implements Authorizable, ChecksPermissions, ClaimsAuthenticatable
 {
     use AuthorizableTrait;
 
@@ -30,9 +38,14 @@ final class TokenUser implements Authorizable, ChecksPermissions, ClaimsAuthenti
         private readonly array $permissions,
     ) {}
 
-    public static function fromClaims(Claims $claims): self
+    /**
+     * `new static`, never `new self`: the guard resolves the *configured*
+     * identity class and calls this on it, so binding to the named class here
+     * would quietly hand a host back a TokenUser and drop its swap.
+     */
+    public static function fromClaims(Claims $claims): static
     {
-        return new self(
+        return new static(
             $claims,
             $claims->string('sub'),
             $claims->has('permissions') ? $claims->list('permissions') : [],
