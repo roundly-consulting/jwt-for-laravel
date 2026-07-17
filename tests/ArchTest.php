@@ -14,8 +14,7 @@ ArchPresets::strictTypes('RoundlyConsulting\Jwt');
 // `jwt.guard.identity` invites a host to subclass (pinned by the preset below
 // instead), and JwtException, the base every JOSE error extends so a host can
 // catch token failures uniformly.
-ArchPresets::finalByDefault('RoundlyConsulting\Jwt')
-    ->ignoring([TokenUser::class, JwtException::class]);
+ArchPresets::finalByDefault('RoundlyConsulting\Jwt', [TokenUser::class, JwtException::class]);
 
 ArchPresets::swappableModelsAreNotFinal([TokenUser::class => 'jwt.guard.identity']);
 
