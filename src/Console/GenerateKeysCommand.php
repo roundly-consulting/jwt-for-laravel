@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
 use RoundlyConsulting\Crypto\Exceptions\CryptoException;
 use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
+use RoundlyConsulting\Jwt\Support\KeyPath;
 
 /**
  * Generates a 2048-bit RSA keypair for signing (private) and verifying (public)
@@ -39,6 +40,14 @@ final class GenerateKeysCommand extends Command
 
             return self::FAILURE;
         }
+
+        // Anchor relative paths to the application root, exactly as the
+        // KeyRepository does when reading them — otherwise the keys land
+        // wherever the command happened to be run from and the app can't
+        // find them.
+        $basePath = $this->laravel->basePath();
+        $privatePath = KeyPath::resolve($privatePath, $basePath);
+        $publicPath = KeyPath::resolve($publicPath, $basePath);
 
         $force = (bool) $this->option('force');
 

@@ -21,6 +21,7 @@ use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenIssuer;
 use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenVerifier;
 use RoundlyConsulting\Jwt\ServiceTokens\NativeServiceTokenService;
 use RoundlyConsulting\Jwt\ServiceTokens\ServiceGuard;
+use RoundlyConsulting\Jwt\Support\KeyPath;
 use RoundlyConsulting\Jwt\Support\KeyRepository;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\ChecksPermissions;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\ClaimsAuthenticatable;
@@ -64,8 +65,8 @@ final class JwtServiceProvider extends PackageServiceProvider
         $this->app->singleton(Decoder::class);
 
         $this->app->singleton(KeyRepository::class, fn (): KeyRepository => new KeyRepository(
-            $this->nullableString(config('jwt.private_key_path')),
-            $this->nullableString(config('jwt.public_key_path')),
+            $this->resolvedKeyPath(config('jwt.private_key_path')),
+            $this->resolvedKeyPath(config('jwt.public_key_path')),
         ));
 
         $this->app->singleton(UserTokenIssuer::class, fn (Application $app): NativeUserTokenIssuer => new NativeUserTokenIssuer(
@@ -247,6 +248,17 @@ final class JwtServiceProvider extends PackageServiceProvider
     private function nullableString(mixed $value): ?string
     {
         return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    /**
+     * A configured key path, anchored to the application root when relative, so
+     * key loading never depends on the process's working directory.
+     */
+    private function resolvedKeyPath(mixed $value): ?string
+    {
+        $path = $this->nullableString($value);
+
+        return $path === null ? null : KeyPath::resolve($path, $this->app->basePath());
     }
 
     /**
