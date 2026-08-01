@@ -58,11 +58,22 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
 
     /**
      * The claims a caller may never supply: every one of them is a statement this
-     * class makes about the token, not a fact the caller is entitled to assert.
+     * class makes about the token, or one the PLATFORM makes about an identity —
+     * not a fact the caller is entitled to assert.
+     *
+     * `sub` is here even though a service token never carries one today: it is the
+     * obvious name a future "service acting for a user" feature reaches for, and a
+     * caller that could set it would be naming a person. The four after it are what
+     * `TokenUser::fromClaims` reads — a token asserting its own `permissions` that
+     * some consumer later hydrates into a `TokenUser` is precisely the failure this
+     * guard exists to prevent.
      *
      * @var list<string>
      */
-    private const REGISTERED = ['iss', 'aud', 'iat', 'nbf', 'exp', 'jti', 'scope'];
+    private const REGISTERED = [
+        'iss', 'aud', 'iat', 'nbf', 'exp', 'jti', 'scope', 'sub',
+        'permissions', 'tv', 'email', 'email_verified',
+    ];
 
     /**
      * @param  array<string, string>  $secrets  per-issuer secrets; empty ⇒ shared `secret` mode
@@ -83,9 +94,9 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
     ) {}
 
     /**
-     * @param  array<string, mixed>  $extraClaims
+     * @param  array<string, mixed>  $claims
      */
-    public function issue(?string $audience = null, array $extraClaims = []): IssuedToken
+    public function issue(?string $audience = null, array $claims = []): IssuedToken
     {
         if ($this->issuer === '') {
             throw ServiceAuthMisconfigured::missingIssuer();
@@ -110,13 +121,13 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
         // the merge order quietly win: a caller passing `aud` believes it did
         // something, and silently ignoring it is how that belief survives to
         // production.
-        $reserved = array_intersect(array_keys($extraClaims), self::REGISTERED);
+        $reserved = array_intersect(array_keys($claims), self::REGISTERED);
         if ($reserved !== []) {
             throw ServiceAuthMisconfigured::reservedClaims(array_values($reserved));
         }
 
         $claims = [
-            ...$extraClaims,
+            ...$claims,
             'iss' => $this->issuer,
             'aud' => $audience,
             'iat' => $now->getTimestamp(),

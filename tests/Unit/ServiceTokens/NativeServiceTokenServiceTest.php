@@ -246,3 +246,22 @@ it('refuses to let a caller supply a registered claim', function (): void {
     expect(fn () => serviceService()->issue('auth', ['aud' => 'somewhere-else']))
         ->toThrow(ServiceAuthMisconfigured::class);
 });
+
+it('refuses a caller that tries to name a person or their permissions', function (string $claim): void {
+    // Not just the registered JWT claims: `sub` is the name a future "service acting
+    // for a user" feature reaches for, and `permissions`/`tv`/`email` are what
+    // `TokenUser::fromClaims` reads — so a token asserting its own permissions that
+    // some consumer later hydrates into a TokenUser is exactly this guard's purpose.
+    expect(fn () => serviceService()->issue('auth', [$claim => 'anything']))
+        ->toThrow(ServiceAuthMisconfigured::class);
+})->with(['sub', 'permissions', 'tv', 'email', 'email_verified']);
+
+it('is callable through the interface with a named argument', function (): void {
+    // The implementation used to name the parameter `$extraClaims` while the
+    // interface declared `$claims`, so `issue(claims: [...])` against the interface
+    // fatalled on the concrete class.
+    $issuer = serviceService();
+
+    expect($issuer->verify($issuer->issue(audience: 'auth', claims: ['company' => 'acme'])->token)->get('company'))
+        ->toBe('acme');
+});
