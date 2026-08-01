@@ -226,3 +226,23 @@ it('rejects a token with no issuer in per-issuer mode', function (): void {
 
     serviceService(secrets: ISSUER_SECRETS)->verify($token);
 })->throws(ClaimMismatch::class, 'issuer is missing');
+
+it('carries caller-defined claims into the token', function (): void {
+    $service = serviceService();
+
+    // A token handed to a subprocess that then acts on its holder's behalf cannot
+    // take its authorization from a request body — anything the subject can write
+    // is by definition not an authorization. So it rides in the token.
+    $claims = $service->verify($service->issue('auth', ['execution' => 'exec-1', 'send_external' => true])->token);
+
+    expect($claims->get('execution'))->toBe('exec-1')
+        ->and($claims->get('send_external'))->toBeTrue();
+});
+
+it('refuses to let a caller supply a registered claim', function (): void {
+    // Merging instead of refusing would let a caller move `aud` and address any
+    // service in the mesh — and silently ignoring it would leave the caller
+    // believing it did something.
+    expect(fn () => serviceService()->issue('auth', ['aud' => 'somewhere-else']))
+        ->toThrow(ServiceAuthMisconfigured::class);
+});

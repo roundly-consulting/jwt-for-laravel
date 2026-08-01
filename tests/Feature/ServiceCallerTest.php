@@ -15,7 +15,10 @@ function fakeIssuer(): ServiceTokenIssuer
     {
         public ?string $lastAudience = 'unset';
 
-        public function issue(?string $audience = null): IssuedToken
+        /**
+         * @param  array<string, mixed>  $claims
+         */
+        public function issue(?string $audience = null, array $claims = []): IssuedToken
         {
             $this->lastAudience = $audience;
 

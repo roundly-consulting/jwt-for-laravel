@@ -44,4 +44,12 @@ final class ServiceAuthMisconfigured extends RuntimeException
     {
         return new self("Service token auth is misconfigured: SERVICE_JWT_SECRETS has no entry for this service's own issuer [{$issuer}].");
     }
+
+    /**
+     * @param  list<string>  $claims
+     */
+    public static function reservedClaims(array $claims): self
+    {
+        return new self('Service token auth is misconfigured: ['.implode(', ', $claims).'] are registered claims and cannot be supplied by a caller.');
+    }
 }

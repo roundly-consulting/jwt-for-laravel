@@ -57,6 +57,14 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
     private const DUMMY_SECRET = 'jwt-for-laravel/unknown-issuer/constant-time-burn/8f3c1a9e2b';
 
     /**
+     * The claims a caller may never supply: every one of them is a statement this
+     * class makes about the token, not a fact the caller is entitled to assert.
+     *
+     * @var list<string>
+     */
+    private const REGISTERED = ['iss', 'aud', 'iat', 'nbf', 'exp', 'jti', 'scope'];
+
+    /**
      * @param  array<string, string>  $secrets  per-issuer secrets; empty ⇒ shared `secret` mode
      * @param  list<string>  $allowedIssuers  empty ⇒ any issuer accepted
      */
@@ -74,7 +82,10 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
         #[\SensitiveParameter] private readonly array $secrets = [],
     ) {}
 
-    public function issue(?string $audience = null): IssuedToken
+    /**
+     * @param  array<string, mixed>  $extraClaims
+     */
+    public function issue(?string $audience = null, array $extraClaims = []): IssuedToken
     {
         if ($this->issuer === '') {
             throw ServiceAuthMisconfigured::missingIssuer();
@@ -94,7 +105,18 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
         $expiresAt = $now->addSeconds($this->ttl);
         $jti = (string) Str::uuid();
 
+        // Registered claims are written LAST, so an extra claim can never move the
+        // audience, the expiry or the scope. Rejecting outright rather than letting
+        // the merge order quietly win: a caller passing `aud` believes it did
+        // something, and silently ignoring it is how that belief survives to
+        // production.
+        $reserved = array_intersect(array_keys($extraClaims), self::REGISTERED);
+        if ($reserved !== []) {
+            throw ServiceAuthMisconfigured::reservedClaims(array_values($reserved));
+        }
+
         $claims = [
+            ...$extraClaims,
             'iss' => $this->issuer,
             'aud' => $audience,
             'iat' => $now->getTimestamp(),
