@@ -1,8 +1,10 @@
+<!-- roundly-hero:start -->
 <p align="center">
-  <a href="https://roundly-consulting.com/open-source">
+  <a href="https://roundly-consulting.com/open-source/docs/jwt-for-laravel?utm_source=github&utm_medium=readme&utm_campaign=open-source&utm_content=jwt-for-laravel">
     <img src="art/hero.png" alt="JWT for Laravel — Roundly open source" width="100%">
   </a>
 </p>
+<!-- roundly-hero:end -->
 
 # JWT for Laravel
 
