@@ -13,16 +13,23 @@ use RoundlyConsulting\Jwt\UserTokens\IssuedToken;
 
 /**
  * A cache-backed denylist. Each denied `jti` is stored under a prefixed key
- * with a TTL equal to the token's remaining lifetime, so entries evict exactly
- * when the token would have expired anyway — no unbounded growth.
+ * with a TTL equal to the token's remaining verifiable lifetime — its `exp`
+ * plus the verifier's clock-skew leeway — so entries evict exactly when the
+ * token could no longer verify anyway: no unbounded growth, and no window in
+ * which a denied token outlives its denial.
  */
 final class CacheDenylist implements Denylist
 {
+    /**
+     * @param  int  $leeway  the verifier's clock-skew leeway (`jwt.leeway`): a token
+     *                       still verifies until `exp + leeway`, so its denial must last as long
+     */
     public function __construct(
         private readonly CacheFactory $cache,
         private readonly ?string $store,
         private readonly string $prefix,
         private readonly ?Dispatcher $events = null,
+        private readonly int $leeway = 0,
     ) {}
 
     public function has(string $jti): bool
@@ -32,9 +39,9 @@ final class CacheDenylist implements Denylist
 
     public function deny(string $jti, CarbonImmutable $until): void
     {
-        $seconds = $until->getTimestamp() - CarbonImmutable::now()->getTimestamp();
+        $seconds = $until->getTimestamp() + max(0, $this->leeway) - CarbonImmutable::now()->getTimestamp();
 
-        // Nothing to do for an already-expired token; it can no longer verify.
+        // Nothing to do for a token past `exp + leeway`; it can no longer verify.
         if ($seconds <= 0) {
             return;
         }

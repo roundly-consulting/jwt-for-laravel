@@ -71,3 +71,21 @@ it('works without an event dispatcher bound', function (): void {
 
     expect($denylist->has('jti-nulld'))->toBeTrue();
 });
+
+it('holds a denial for the verification leeway past the token expiry', function (): void {
+    $denylist = new CacheDenylist(app(CacheFactory::class), 'array', 'jwt:denylist:', null, leeway: 30);
+    $denylist->deny('jti-1', CarbonImmutable::now()->addSeconds(60));
+
+    CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(89));
+    expect($denylist->has('jti-1'))->toBeTrue();
+
+    CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(2));
+    expect($denylist->has('jti-1'))->toBeFalse();
+});
+
+it('still denies a token past its expiry while the leeway keeps it verifiable', function (): void {
+    $denylist = new CacheDenylist(app(CacheFactory::class), 'array', 'jwt:denylist:', null, leeway: 30);
+    $denylist->deny('jti-1', CarbonImmutable::now()->subSeconds(10));
+
+    expect($denylist->has('jti-1'))->toBeTrue();
+});

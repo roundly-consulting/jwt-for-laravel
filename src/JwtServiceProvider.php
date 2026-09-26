@@ -109,6 +109,7 @@ final class JwtServiceProvider extends PackageServiceProvider
             $this->nullableString(config('jwt.denylist.store')),
             (string) config('jwt.denylist.prefix'),
             $this->dispatcher($app),
+            (int) config('jwt.leeway'),
         ));
 
         $this->app->singleton(JwtManager::class, fn (Application $app): JwtManager => new JwtManager($app));

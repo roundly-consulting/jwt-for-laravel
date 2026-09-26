@@ -315,7 +315,7 @@ Jwt::denyClaims(Jwt::verify($jwt));   // or from verified claims (reads jti + ex
 app(\RoundlyConsulting\Jwt\Denylist\Contracts\Denylist::class)->denyToken($issued);
 ```
 
-The entry auto-evicts when the token would have expired. The `jwt` guard rejects denylisted
+The entry auto-evicts once the token can no longer verify (`exp` + `jwt.leeway`). The `jwt` guard rejects denylisted
 tokens while `guard.check_denylist` is true.
 
 ### Events

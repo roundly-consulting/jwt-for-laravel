@@ -16,7 +16,8 @@ interface Denylist
     public function has(string $jti): bool;
 
     /**
-     * Deny a token id until the given instant (typically its `exp`).
+     * Deny a token id until the given instant (typically its `exp`) — and for
+     * as long past it as the verifier's leeway still accepts the token.
      */
     public function deny(string $jti, CarbonImmutable $until): void;
 

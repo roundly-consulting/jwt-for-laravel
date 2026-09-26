@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
+use RoundlyConsulting\Jwt\Facades\Jwt;
 use RoundlyConsulting\Jwt\Support\KeyRepository;
 use RoundlyConsulting\Jwt\Tests\Fixtures\CustomIdentity;
 use RoundlyConsulting\Jwt\Tests\Fixtures\TokenVersionResolver;
@@ -65,6 +66,34 @@ it('rejects a tampered token', function (): void {
 it('rejects a denylisted jti', function (): void {
     $issued = app(UserTokenIssuer::class)->mint('user-1', 'access', 900);
     app(Denylist::class)->deny($issued->jti, CarbonImmutable::now()->addSeconds(900));
+
+    $this->withToken($issued->token)->getJson('/protected')->assertUnauthorized();
+});
+
+/*
+ * The verifier accepts a token until `exp + leeway`, so a denial that lapses at `exp`
+ * hands a logged-out token back its access for the length of the leeway.
+ */
+it('keeps a logged-out token rejected through the verification leeway', function (): void {
+    config(['jwt.leeway' => 30]);
+
+    $issued = app(UserTokenIssuer::class)->mint('user-1', 'access', 900);
+    Jwt::logout($issued);
+
+    // Past `exp`, inside the leeway: the signature and clock still say "valid".
+    CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(910));
+    expect(app(UserTokenVerifier::class)->verify($issued->token)->string('jti'))->toBe($issued->jti);
+
+    $this->withToken($issued->token)->getJson('/protected')->assertUnauthorized();
+});
+
+it('denies a token logged out after its exp but inside the leeway', function (): void {
+    config(['jwt.leeway' => 30]);
+
+    $issued = app(UserTokenIssuer::class)->mint('user-1', 'access', 900);
+
+    CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(905));
+    Jwt::denyClaims(app(UserTokenVerifier::class)->verify($issued->token));
 
     $this->withToken($issued->token)->getJson('/protected')->assertUnauthorized();
 });
