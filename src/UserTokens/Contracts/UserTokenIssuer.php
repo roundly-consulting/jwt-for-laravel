@@ -14,15 +14,17 @@ interface UserTokenIssuer
      * Mint a signed RS256 user token for the given subject and scope.
      *
      * Pass a {@see Scope} case for a built-in scope, or any string for a custom
-     * one.
+     * one. `$audience` overrides the configured `jwt.audience` for this token
+     * (null keeps the configured one; an empty string is a misconfiguration).
      *
      * @param  array<string, mixed>  $extraClaims
      */
-    public function mint(string $subject, Scope|string $scope, int $ttl, array $extraClaims = []): IssuedToken;
+    public function mint(string $subject, Scope|string $scope, int $ttl, array $extraClaims = [], ?string $audience = null): IssuedToken;
 
     /**
-     * Mint an access token (`scope=access`) from a fluent request, using the
-     * configured access TTL.
+     * Mint an access token (`scope=access`) from a fluent request, honouring
+     * the request's audience and TTL and falling back to the configured
+     * `jwt.audience` / `jwt.ttl`.
      */
     public function mintAccessToken(AccessTokenRequest $request): IssuedToken;
 

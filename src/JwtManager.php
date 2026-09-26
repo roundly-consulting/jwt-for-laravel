@@ -5,22 +5,27 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Jwt;
 
 use Carbon\CarbonImmutable;
+use Closure;
 use Illuminate\Contracts\Auth\Factory as AuthFactory;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
 use RoundlyConsulting\Jwt\Events\TokenVerificationFailed;
+use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
 use RoundlyConsulting\Jwt\Jose\Claims;
 use RoundlyConsulting\Jwt\Jose\Exceptions\ClaimMismatch;
 use RoundlyConsulting\Jwt\Jose\Exceptions\JwtException;
 use RoundlyConsulting\Jwt\ServiceTokens\NativeServiceTokenService;
 use RoundlyConsulting\Jwt\ServiceTokens\ServiceCaller;
 use RoundlyConsulting\Jwt\UserTokens\AccessTokenRequest;
+use RoundlyConsulting\Jwt\UserTokens\Contracts\ClaimsAuthenticatable;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenIssuer;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
 use RoundlyConsulting\Jwt\UserTokens\IssuedToken;
 use RoundlyConsulting\Jwt\UserTokens\JwtGuard;
+use RoundlyConsulting\Jwt\UserTokens\JwtGuardSettings;
+use RoundlyConsulting\Jwt\UserTokens\TokenUser;
 
 /**
  * The one obvious entry point behind the `Jwt` facade.
@@ -42,9 +47,9 @@ final class JwtManager
     /**
      * @param  array<string, mixed>  $extraClaims
      */
-    public function mint(string $subject, string $scope, int $ttl, array $extraClaims = []): IssuedToken
+    public function mint(string $subject, string $scope, int $ttl, array $extraClaims = [], ?string $audience = null): IssuedToken
     {
-        return $this->issuer()->mint($subject, $scope, $ttl, $extraClaims);
+        return $this->issuer()->mint($subject, $scope, $ttl, $extraClaims, $audience);
     }
 
     /**
@@ -63,14 +68,15 @@ final class JwtManager
     /**
      * Verify an RS256 user token, dispatching {@see TokenVerificationFailed} on
      * failure. This is the explicit verify path; the guard's silent per-request
-     * resolution does not emit the event.
+     * resolution does not emit the event. `$audience` pins a specific audience
+     * (e.g. `audienceFor('clients')`); null keeps the configured `jwt.audience`.
      *
      * @throws JwtException
      */
-    public function verify(string $jwt): Claims
+    public function verify(string $jwt, ?string $audience = null): Claims
     {
         try {
-            return $this->verifier()->verify($jwt);
+            return $this->verifier()->verify($jwt, $audience);
         } catch (JwtException $e) {
             $this->events()?->dispatch(new TokenVerificationFailed($e->getMessage(), $e::class));
 
@@ -117,30 +123,54 @@ final class JwtManager
     /**
      * The verified claims of the current request, or null when unauthenticated.
      *
-     * Resolved through the auth manager's per-request `jwt` guard(s) — never
-     * static state — so long-lived workers (Octane, queues) can't leak one
-     * request's claims into the next.
+     * With no guard, the first `jwt` guard that has a user wins; with a guard
+     * name, exactly that guard is asked (null when it is not a `jwt` guard or
+     * has no user). Resolved through the auth manager's per-request guard(s) —
+     * never static state — so long-lived workers (Octane, queues) can't leak
+     * one request's claims into the next.
      */
-    public function claims(): ?Claims
+    public function claims(?string $guard = null): ?Claims
     {
-        $auth = $this->container->make(AuthFactory::class);
+        $jwtGuards = $this->jwtGuards($this->container->make(ConfigRepository::class));
 
-        /** @var array<string, array<string, mixed>> $guards */
-        $guards = (array) $this->container->make(ConfigRepository::class)->get('auth.guards', []);
-
-        foreach ($guards as $name => $config) {
-            if (($config['driver'] ?? null) !== 'jwt') {
+        foreach ($guard === null ? array_keys($jwtGuards) : [$guard] as $name) {
+            if (! array_key_exists($name, $jwtGuards)) {
                 continue;
             }
 
-            $guard = $auth->guard($name);
+            $instance = $this->container->make(AuthFactory::class)->guard($name);
 
-            if ($guard instanceof JwtGuard && $guard->user() !== null) {
-                return $guard->payload();
+            if ($instance instanceof JwtGuard && $instance->user() !== null) {
+                return $instance->payload();
             }
         }
 
         return null;
+    }
+
+    /**
+     * The audience tokens for this guard are minted for and verified against:
+     * `auth.guards.<guard>.audience` when set, else `jwt.audience`.
+     *
+     * @throws JwtMisconfigured when the guard is not a `jwt` guard.
+     */
+    public function audienceFor(string $guard): string
+    {
+        return $this->guardSettings($guard)->audience;
+    }
+
+    /**
+     * The effective options of a `jwt` guard — each `auth.guards.<guard>` key
+     * (`audience`, `scope`, `check_denylist`, `identity`, `token_version`)
+     * falling back to its global `jwt.*` counterpart. The `jwt` guard driver is
+     * built from exactly this, so what a consumer reads here is what the guard
+     * enforces.
+     *
+     * @throws JwtMisconfigured when the guard is not a `jwt` guard.
+     */
+    public function guardSettings(string $guard): JwtGuardSettings
+    {
+        return $this->resolveGuardSettings($guard, $this->container->make(ConfigRepository::class));
     }
 
     private function issuer(): UserTokenIssuer
@@ -151,6 +181,69 @@ final class JwtManager
     private function verifier(): UserTokenVerifier
     {
         return $this->container->make(UserTokenVerifier::class);
+    }
+
+    private function resolveGuardSettings(string $guard, ConfigRepository $config): JwtGuardSettings
+    {
+        $options = $this->jwtGuards($config)[$guard] ?? throw JwtMisconfigured::notAJwtGuard($guard);
+
+        return new JwtGuardSettings(
+            guard: $guard,
+            audience: $this->nonEmptyString($options['audience'] ?? null) ?? (string) $config->get('jwt.audience'),
+            scope: is_string($options['scope'] ?? null) ? $options['scope'] : (string) $config->get('jwt.guard.scope'),
+            checkDenylist: $this->bool($options['check_denylist'] ?? null) ?? (bool) $config->get('jwt.guard.check_denylist'),
+            identity: $this->identityClass($options['identity'] ?? null)
+                ?? $this->identityClass($config->get('jwt.guard.identity'))
+                ?? TokenUser::class,
+            tokenVersion: $this->tokenVersion($options['token_version'] ?? null)
+                ?? $this->tokenVersion($config->get('jwt.guard.token_version')),
+        );
+    }
+
+    /**
+     * Every configured guard using the `jwt` driver, keyed by guard name.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function jwtGuards(ConfigRepository $config): array
+    {
+        $guards = [];
+
+        foreach ((array) $config->get('auth.guards', []) as $name => $options) {
+            if (is_string($name) && is_array($options) && ($options['driver'] ?? null) === 'jwt') {
+                /** @var array<string, mixed> $options */
+                $guards[$name] = $options;
+            }
+        }
+
+        return $guards;
+    }
+
+    private function nonEmptyString(mixed $value): ?string
+    {
+        return is_string($value) && trim($value) !== '' ? $value : null;
+    }
+
+    /**
+     * A per-guard boolean, tolerating env-style strings ("false", "0") that a
+     * plain `(bool)` cast would read as true.
+     */
+    private function bool(mixed $value): ?bool
+    {
+        return $value === null ? null : filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+    }
+
+    /**
+     * @return class-string<ClaimsAuthenticatable>|null
+     */
+    private function identityClass(mixed $value): ?string
+    {
+        return is_string($value) && is_subclass_of($value, ClaimsAuthenticatable::class) ? $value : null;
+    }
+
+    private function tokenVersion(mixed $value): string|Closure|null
+    {
+        return $value instanceof Closure ? $value : $this->nonEmptyString($value);
     }
 
     private function events(): ?Dispatcher

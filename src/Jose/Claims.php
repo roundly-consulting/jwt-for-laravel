@@ -100,6 +100,38 @@ final readonly class Claims
     }
 
     /**
+     * The OIDC `sid` claim, or null when the token carries none.
+     *
+     * @throws ClaimMismatch when present but not a string.
+     */
+    public function sessionId(): ?string
+    {
+        return $this->has('sid') ? $this->string('sid') : null;
+    }
+
+    /**
+     * The RFC 8176 `amr` claim, or an empty list when the token carries none.
+     *
+     * @return list<string>
+     *
+     * @throws ClaimMismatch when present but not a list of strings.
+     */
+    public function authMethods(): array
+    {
+        return $this->has('amr') ? $this->list('amr') : [];
+    }
+
+    /**
+     * The OIDC `auth_time` claim (unix seconds), or null when the token carries none.
+     *
+     * @throws ClaimMismatch when present but not an integer.
+     */
+    public function authTime(): ?int
+    {
+        return $this->has('auth_time') ? $this->int('auth_time') : null;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function all(): array

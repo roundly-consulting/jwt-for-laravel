@@ -10,7 +10,8 @@ interface UserTokenVerifier
 {
     /**
      * Verify an RS256 user token (signature, expiry, pinned iss/aud) and return
-     * its claims.
+     * its claims. `$audience` pins a specific audience for this call (null
+     * keeps the configured `jwt.audience`; an empty string is a misconfiguration).
      */
-    public function verify(string $jwt): Claims;
+    public function verify(string $jwt, ?string $audience = null): Claims;
 }

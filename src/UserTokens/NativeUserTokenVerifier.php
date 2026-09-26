@@ -14,7 +14,8 @@ use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
 
 /**
  * Verifies RS256 user tokens offline with the configured public key, strictly
- * pinning the issuer and audience.
+ * pinning the issuer and audience (the configured one, or an explicit
+ * per-call audience — e.g. the audience of the guard doing the verifying).
  *
  * Algorithm is pinned to RS256 by the {@see Decoder}; this layer adds the
  * `iss`/`aud` equality checks. Scope, denylist and token-version enforcement
@@ -40,15 +41,19 @@ final class NativeUserTokenVerifier implements UserTokenVerifier
         }
     }
 
-    public function verify(string $jwt): Claims
+    public function verify(string $jwt, ?string $audience = null): Claims
     {
+        if ($audience === '') {
+            throw JwtMisconfigured::missingAudience();
+        }
+
         $claims = $this->decoder->decode($jwt, $this->keys->publicKey(), Algorithm::RS256, $this->leeway);
 
         if ($claims->require('iss') !== $this->issuer) {
             throw new ClaimMismatch('Token issuer does not match the expected issuer.');
         }
 
-        if ($claims->require('aud') !== $this->audience) {
+        if ($claims->require('aud') !== ($audience ?? $this->audience)) {
             throw new ClaimMismatch('Token audience does not match the expected audience.');
         }
 

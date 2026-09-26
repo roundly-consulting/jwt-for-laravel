@@ -8,6 +8,8 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
 use RoundlyConsulting\Jwt\Support\KeyRepository;
+use RoundlyConsulting\Jwt\Tests\Fixtures\CustomIdentity;
+use RoundlyConsulting\Jwt\Tests\Fixtures\TokenVersionResolver;
 use RoundlyConsulting\Jwt\Tests\Fixtures\User;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenIssuer;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
@@ -147,4 +149,68 @@ it('resolves a database user in provider mode and enforces token version', funct
 
     $this->withToken($fresh)->getJson('/protected')->assertOk()->assertJson(['id' => $user->id]);
     $this->withToken($stale)->getJson('/protected')->assertUnauthorized();
+});
+
+it('verifies against the guard\'s own audience', function (): void {
+    config(['auth.guards.api' => ['driver' => 'jwt', 'audience' => 'clients']]);
+
+    $forClients = app(UserTokenIssuer::class)->mint('user-1', 'access', 900, [], 'clients')->token;
+
+    $this->withToken($forClients)->getJson('/protected')->assertOk();
+    $this->withToken(mint())->getJson('/protected')->assertUnauthorized();
+});
+
+it('requires the guard\'s own scope', function (): void {
+    config(['auth.guards.api' => ['driver' => 'jwt', 'scope' => 'partner']]);
+
+    $this->withToken(mint('partner'))->getJson('/protected')->assertOk();
+    $this->withToken(mint())->getJson('/protected')->assertUnauthorized();
+});
+
+it('honours the guard\'s own denylist switch', function (): void {
+    config(['auth.guards.api' => ['driver' => 'jwt', 'check_denylist' => false]]);
+
+    $issued = app(UserTokenIssuer::class)->mint('user-1', 'access', 900);
+    app(Denylist::class)->deny($issued->jti, CarbonImmutable::now()->addSeconds(900));
+
+    $this->withToken($issued->token)->getJson('/protected')->assertOk();
+});
+
+it('builds the guard\'s own identity class', function (): void {
+    config(['auth.guards.api' => ['driver' => 'jwt', 'identity' => CustomIdentity::class]]);
+
+    Route::middleware('auth:api')->get('/identity', fn () => response()->json(['class' => auth()->user()::class]));
+
+    $this->withToken(mint())->getJson('/identity')->assertOk()->assertJson(['class' => CustomIdentity::class]);
+});
+
+it('enforces the guard\'s own invokable token_version resolver', function (): void {
+    config(['auth.guards.api' => ['driver' => 'jwt', 'token_version' => TokenVersionResolver::class]]);
+
+    $this->withToken(mint('access', ['tv' => 7]))->getJson('/protected')->assertOk();
+    $this->withToken(mint('access', ['tv' => 6]))->getJson('/protected')->assertUnauthorized();
+});
+
+it('prefers the guard\'s token_version over the global one', function (): void {
+    config([
+        'jwt.guard.token_version' => fn (): int => 1,
+        'auth.guards.api' => ['driver' => 'jwt', 'token_version' => TokenVersionResolver::class],
+    ]);
+
+    $this->withToken(mint('access', ['tv' => 7]))->getJson('/protected')->assertOk();
+    $this->withToken(mint('access', ['tv' => 1]))->getJson('/protected')->assertUnauthorized();
+});
+
+it('survives a config:cache round-trip with an invokable per-guard token_version', function (): void {
+    config(['auth.guards.api' => ['driver' => 'jwt', 'audience' => 'clients', 'token_version' => TokenVersionResolver::class]]);
+
+    // config:cache writes the repository with var_export() and loads it back —
+    // a closure cannot make that trip, a class-string can.
+    $cached = eval('return '.var_export(config()->all(), true).';');
+    config()->set($cached);
+    Auth::forgetGuards();
+
+    $token = app(UserTokenIssuer::class)->mint('user-1', 'access', 900, ['tv' => 7], 'clients')->token;
+
+    $this->withToken($token)->getJson('/protected')->assertOk();
 });

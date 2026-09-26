@@ -20,13 +20,17 @@ use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
 /**
  * The `jwt` guard driver: authenticates a request from its bearer token.
  *
- * Pipeline: bearer → verify (RS256 + pinned iss/aud) → required scope →
+ * Pipeline: bearer → verify (RS256 + pinned iss + this guard's aud) → required scope →
  * denylist → identity (Eloquent provider when set, else the claims-mode
  * identity class) → optional `token_version` freshness. Any token failure
  * yields a null user (a 401 at the HTTP layer); a {@see KeyLoadFailed}
  * (missing/invalid key) is rethrown so an operator error surfaces as a 500,
  * never a silent 401. The claims are re-resolved whenever the bound request
  * instance changes.
+ *
+ * The audience is per guard on purpose: every guard resolves `sub` through its
+ * *own* provider, so two guards accepting the same audience would let a token
+ * minted for one account type authenticate as the same-keyed row of another.
  */
 final class JwtGuard implements Guard
 {
@@ -44,6 +48,7 @@ final class JwtGuard implements Guard
         private readonly UserTokenVerifier $verifier,
         private readonly Denylist $denylist,
         private Request $request,
+        private readonly string $audience,
         private readonly string $requiredScope,
         private readonly string $identityClass,
         private readonly bool $checkDenylist,
@@ -105,6 +110,14 @@ final class JwtGuard implements Guard
     }
 
     /**
+     * The audience a token must carry to authenticate on this guard.
+     */
+    public function audience(): string
+    {
+        return $this->audience;
+    }
+
+    /**
      * The verified claims backing the current user, if any.
      */
     public function payload(): ?Claims
@@ -118,7 +131,7 @@ final class JwtGuard implements Guard
     private function resolve(string $token): ?array
     {
         try {
-            $claims = $this->verifier->verify($token);
+            $claims = $this->verifier->verify($token, $this->audience);
 
             if ($claims->get('scope') !== $this->requiredScope) {
                 return null;

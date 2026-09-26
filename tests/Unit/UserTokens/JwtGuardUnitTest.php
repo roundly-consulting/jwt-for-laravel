@@ -16,7 +16,7 @@ function fakeVerifier(): UserTokenVerifier
 {
     return new class implements UserTokenVerifier
     {
-        public function verify(string $jwt): Claims
+        public function verify(string $jwt, ?string $audience = null): Claims
         {
             if ($jwt === 'good') {
                 return new Claims(['sub' => 'user-1', 'scope' => 'access', 'jti' => 'j1']);
@@ -55,7 +55,7 @@ function requestWithToken(?string $token): Request
 
 function guardFor(Request $request): JwtGuard
 {
-    return new JwtGuard(fakeVerifier(), noopDenylist(), $request, 'access', TokenUser::class, true, null, null);
+    return new JwtGuard(fakeVerifier(), noopDenylist(), $request, 'web', 'access', TokenUser::class, true, null, null);
 }
 
 it('resolves, caches and exposes the payload for a valid token', function (): void {
@@ -84,13 +84,13 @@ it('validates credentials by token', function (): void {
 it('returns no user when the subject claim is not a string', function (): void {
     $verifier = new class implements UserTokenVerifier
     {
-        public function verify(string $jwt): Claims
+        public function verify(string $jwt, ?string $audience = null): Claims
         {
             return new Claims(['sub' => 123, 'scope' => 'access', 'jti' => 'j1']);
         }
     };
 
-    $guard = new JwtGuard($verifier, noopDenylist(), requestWithToken('good'), 'access', TokenUser::class, true, null, null);
+    $guard = new JwtGuard($verifier, noopDenylist(), requestWithToken('good'), 'web', 'access', TokenUser::class, true, null, null);
 
     expect($guard->user())->toBeNull();
 });
@@ -100,13 +100,13 @@ it('rejects a token without a string jti when the denylist is enabled', function
     // otherwise a co-issuer omitting `jti` could mint irrevocable tokens.
     $verifier = new class implements UserTokenVerifier
     {
-        public function verify(string $jwt): Claims
+        public function verify(string $jwt, ?string $audience = null): Claims
         {
             return new Claims(['sub' => 'user-1', 'scope' => 'access']);
         }
     };
 
-    $guard = new JwtGuard($verifier, noopDenylist(), requestWithToken('good'), 'access', TokenUser::class, true, null, null);
+    $guard = new JwtGuard($verifier, noopDenylist(), requestWithToken('good'), 'web', 'access', TokenUser::class, true, null, null);
 
     expect($guard->user())->toBeNull();
 });
@@ -114,13 +114,13 @@ it('rejects a token without a string jti when the denylist is enabled', function
 it('still authenticates a jti-less token when denylisting is disabled', function (): void {
     $verifier = new class implements UserTokenVerifier
     {
-        public function verify(string $jwt): Claims
+        public function verify(string $jwt, ?string $audience = null): Claims
         {
             return new Claims(['sub' => 'user-1', 'scope' => 'access']);
         }
     };
 
-    $guard = new JwtGuard($verifier, noopDenylist(), requestWithToken('good'), 'access', TokenUser::class, false, null, null);
+    $guard = new JwtGuard($verifier, noopDenylist(), requestWithToken('good'), 'web', 'access', TokenUser::class, false, null, null);
 
     expect($guard->user())->toBeInstanceOf(TokenUser::class);
 });

@@ -24,13 +24,11 @@ use RoundlyConsulting\Jwt\ServiceTokens\ServiceGuard;
 use RoundlyConsulting\Jwt\Support\KeyPath;
 use RoundlyConsulting\Jwt\Support\KeyRepository;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\ChecksPermissions;
-use RoundlyConsulting\Jwt\UserTokens\Contracts\ClaimsAuthenticatable;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenIssuer;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
 use RoundlyConsulting\Jwt\UserTokens\JwtGuard;
 use RoundlyConsulting\Jwt\UserTokens\NativeUserTokenIssuer;
 use RoundlyConsulting\Jwt\UserTokens\NativeUserTokenVerifier;
-use RoundlyConsulting\Jwt\UserTokens\TokenUser;
 use RoundlyConsulting\PackageToolkit\Package;
 use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
 
@@ -167,6 +165,10 @@ final class JwtServiceProvider extends PackageServiceProvider
         // so `$this`/`self::` are unavailable here — everything is resolved from
         // `$app`, config and imported class names inline.
         Auth::extend('jwt', static function (Application $app, string $name, array $config): JwtGuard {
+            // One resolution path for every per-guard option (and its global
+            // fallback) — the same one Jwt::guardSettings() hands consumers.
+            $settings = $app->make(JwtManager::class)->guardSettings($name);
+
             $provider = null;
 
             if (isset($config['provider']) && is_string($config['provider'])) {
@@ -175,12 +177,7 @@ final class JwtServiceProvider extends PackageServiceProvider
                 $provider = $auth->createUserProvider($config['provider']);
             }
 
-            $identity = config('jwt.guard.identity');
-            $identityClass = is_string($identity) && is_subclass_of($identity, ClaimsAuthenticatable::class)
-                ? $identity
-                : TokenUser::class;
-
-            $configured = config('jwt.guard.token_version');
+            $configured = $settings->tokenVersion;
             $tokenVersion = null;
 
             if ($configured instanceof Closure) {
@@ -197,9 +194,10 @@ final class JwtServiceProvider extends PackageServiceProvider
                 $app->make(UserTokenVerifier::class),
                 $app->make(Denylist::class),
                 $app->make('request'),
-                (string) config('jwt.guard.scope'),
-                $identityClass,
-                (bool) config('jwt.guard.check_denylist'),
+                $settings->audience,
+                $settings->scope,
+                $settings->identity,
+                $settings->checkDenylist,
                 $tokenVersion,
                 $provider,
             );

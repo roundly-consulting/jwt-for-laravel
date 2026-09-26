@@ -111,7 +111,7 @@ it('trims padding around issuer allow-list entries', function (): void {
 it('lets the host override a bound contract', function (): void {
     $fake = new class implements UserTokenVerifier
     {
-        public function verify(string $jwt): Claims
+        public function verify(string $jwt, ?string $audience = null): Claims
         {
             return new Claims([]);
         }

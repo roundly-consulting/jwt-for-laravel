@@ -5,8 +5,10 @@ declare(strict_types=1);
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Route;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
+use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
 use RoundlyConsulting\Jwt\Facades\Jwt;
 use RoundlyConsulting\Jwt\Jose\Claims;
+use RoundlyConsulting\Jwt\Jose\Exceptions\ClaimMismatch;
 use RoundlyConsulting\Jwt\Jose\Exceptions\InvalidSignature;
 use RoundlyConsulting\Jwt\Jose\Exceptions\JwtException;
 use RoundlyConsulting\Jwt\ServiceTokens\NativeServiceTokenService;
@@ -100,7 +102,7 @@ it('reads the current request claims, null before authentication', function (): 
 it('routes facade calls through the container-bound contract even when overridden', function (): void {
     $fake = new class implements UserTokenVerifier
     {
-        public function verify(string $jwt): Claims
+        public function verify(string $jwt, ?string $audience = null): Claims
         {
             return new Claims(['sub' => 'spied']);
         }
@@ -123,3 +125,62 @@ it('rethrows verification failures', function (): void {
 it('rethrows malformed-token failures', function (): void {
     Jwt::verify('not.a.token');
 })->throws(JwtException::class);
+
+it('resolves a guard audience, falling back to the configured one', function (): void {
+    config([
+        'auth.guards.users' => ['driver' => 'jwt', 'audience' => 'vetapp-users'],
+        'auth.guards.blank' => ['driver' => 'jwt', 'audience' => ''],
+    ]);
+
+    expect(Jwt::audienceFor('users'))->toBe('vetapp-users')
+        ->and(Jwt::audienceFor('api'))->toBe('web')
+        ->and(Jwt::audienceFor('blank'))->toBe('web');
+});
+
+it('refuses the audience of a guard that is not a jwt guard', function (): void {
+    config(['auth.guards.web' => ['driver' => 'session', 'provider' => 'users']]);
+
+    Jwt::audienceFor('web');
+})->throws(JwtMisconfigured::class);
+
+it('exposes the resolved settings of a guard', function (): void {
+    config(['auth.guards.clients' => ['driver' => 'jwt', 'audience' => 'vetapp-clients', 'scope' => 'partner']]);
+
+    $settings = Jwt::guardSettings('clients');
+
+    expect($settings->guard)->toBe('clients')
+        ->and($settings->audience)->toBe('vetapp-clients')
+        ->and($settings->scope)->toBe('partner');
+});
+
+it('mints and verifies for an explicit audience through the facade', function (): void {
+    $issued = Jwt::mint('user-1', 'access', 120, [], 'clients');
+
+    expect(Jwt::verify($issued->token, 'clients')->string('aud'))->toBe('clients')
+        ->and(fn () => Jwt::verify($issued->token))->toThrow(ClaimMismatch::class);
+});
+
+it('reads the claims of one named guard', function (): void {
+    config(['auth.guards.clients' => ['driver' => 'jwt', 'audience' => 'vetapp-clients']]);
+
+    Route::middleware('auth:clients')->get('/clients/whoami', fn () => response()->json([
+        'clients' => Jwt::claims('clients')?->string('sub'),
+        'api' => Jwt::claims('api')?->string('sub'),
+        'web' => Jwt::claims('web')?->string('sub'),
+        'any' => Jwt::claims()?->string('sub'),
+    ]));
+
+    $token = Jwt::mintAccessToken(AccessTokenRequest::for('client-7')->audience(Jwt::audienceFor('clients')))->token;
+
+    $this->withToken($token)->getJson('/clients/whoami')->assertOk()->assertExactJson([
+        'clients' => 'client-7',
+        'api' => null,
+        'web' => null,
+        'any' => 'client-7',
+    ]);
+});
+
+it('reads no claims for a named guard before authentication', function (): void {
+    expect(Jwt::claims('api'))->toBeNull()
+        ->and(Jwt::claims('missing'))->toBeNull();
+});

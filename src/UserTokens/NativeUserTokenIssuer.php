@@ -45,8 +45,14 @@ final class NativeUserTokenIssuer implements UserTokenIssuer
         }
     }
 
-    public function mint(string $subject, Scope|string $scope, int $ttl, array $extraClaims = []): IssuedToken
+    public function mint(string $subject, Scope|string $scope, int $ttl, array $extraClaims = [], ?string $audience = null): IssuedToken
     {
+        // An explicit audience gets the same fail-fast as the configured one:
+        // an empty `aud` would pin nothing.
+        if ($audience === '') {
+            throw JwtMisconfigured::missingAudience();
+        }
+
         $now = CarbonImmutable::now();
         $expiresAt = $now->addSeconds($ttl);
         $jti = (string) Str::uuid();
@@ -55,7 +61,7 @@ final class NativeUserTokenIssuer implements UserTokenIssuer
         $claims = [
             ...$extraClaims,
             'iss' => $this->issuer,
-            'aud' => $this->audience,
+            'aud' => $audience ?? $this->audience,
             'sub' => $subject,
             'iat' => $now->getTimestamp(),
             'nbf' => $now->getTimestamp(),
@@ -73,7 +79,13 @@ final class NativeUserTokenIssuer implements UserTokenIssuer
 
     public function mintAccessToken(AccessTokenRequest $request): IssuedToken
     {
-        return $this->mint($request->subject, Scope::Access, $this->ttl, $request->toClaims());
+        return $this->mint(
+            $request->subject,
+            Scope::Access,
+            $request->ttl ?? $this->ttl,
+            $request->toClaims(),
+            $request->audience,
+        );
     }
 
     public function mintChallengeToken(string $subject, array $extraClaims = []): IssuedToken

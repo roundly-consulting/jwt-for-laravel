@@ -63,3 +63,26 @@ it('rejects a list containing non-strings', function (): void {
 it('exposes all claims', function (): void {
     expect(claims(['a' => 1, 'b' => 2])->all())->toBe(['a' => 1, 'b' => 2]);
 });
+
+it('reads the OIDC session claims when present', function (): void {
+    $claims = claims(['sid' => 'family-1', 'amr' => ['pwd', 'otp'], 'auth_time' => 1_700_000_000]);
+
+    expect($claims->sessionId())->toBe('family-1')
+        ->and($claims->authMethods())->toBe(['pwd', 'otp'])
+        ->and($claims->authTime())->toBe(1_700_000_000);
+});
+
+it('reads absent OIDC session claims as null or empty', function (): void {
+    expect(claims()->sessionId())->toBeNull()
+        ->and(claims()->authMethods())->toBe([])
+        ->and(claims()->authTime())->toBeNull();
+});
+
+it('rejects mistyped OIDC session claims', function (array $data, string $reader): void {
+    claims($data)->{$reader}();
+})->with([
+    'sid not a string' => [['sid' => 42], 'sessionId'],
+    'amr not a list' => [['amr' => 'pwd'], 'authMethods'],
+    'amr not strings' => [['amr' => ['pwd', 1]], 'authMethods'],
+    'auth_time not an int' => [['auth_time' => '1700000000'], 'authTime'],
+])->throws(ClaimMismatch::class);
