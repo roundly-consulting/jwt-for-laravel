@@ -141,7 +141,7 @@ it('raises a misconfiguration when issuing with an empty issuer', function (): v
 
 it('raises a misconfiguration when verifying with no service name', function (): void {
     serviceService(serviceName: '')->verify('a.b.c');
-})->throws(ServiceAuthMisconfigured::class, 'app.service');
+})->throws(ServiceAuthMisconfigured::class, 'JWT_SERVICE_NAME');
 
 const ISSUER_SECRETS = [
     'logger' => 'per-issuer-secret-for-logger-0123456789',

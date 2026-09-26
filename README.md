@@ -101,7 +101,8 @@ verification once the keys/secret are set. Every key and its backing env var:
 | `denylist.prefix` | `JWT_DENYLIST_PREFIX` | `jwt:denylist:` | Denylist cache-key prefix |
 | `service.secret` | `SERVICE_JWT_SECRET` | `null` | HS256 shared secret, ≥32 random bytes (`openssl rand -base64 48`) |
 | `service.secrets` | `SERVICE_JWT_SECRETS` | `null` | Per-issuer secrets `"billing:<secret>,api:<secret>"`; overrides `secret` |
-| `service.issuer` | `JWT_SERVICE_ISSUER` | `env('APP_SERVICE')` | This service's name (token `iss`) |
+| `service.name` | `JWT_SERVICE_NAME` | `app.service`, else `Str::slug(app.name)` | This service's own name: the `aud` inbound service tokens must carry. Set it explicitly to a stable id — the app name can change |
+| `service.issuer` | `JWT_SERVICE_ISSUER` | `env('APP_SERVICE')`, else `service.name` | The `iss` of service tokens this app mints |
 | `service.audience` | `JWT_SERVICE_AUDIENCE` | `null` | Default service-token `aud` |
 | `service.ttl` | `SERVICE_JWT_TTL` | `60` | Service-token lifetime (seconds) |
 | `service.issuers` | `JWT_SERVICE_ISSUERS` | `[]` (any) | Comma-separated issuer allow-list |
@@ -299,6 +300,11 @@ Jwt::caller()->request('target-service')
 
 A missing, too-short or PEM-shaped `SERVICE_JWT_SECRET` raises `ServiceAuthMisconfigured` (a
 500), never a silent 401.
+
+`'target-service'` is the receiver's **service name** — inbound tokens must carry it as `aud`. Each
+service sets its own with `JWT_SERVICE_NAME`; unset, it falls back to `config('app.service')`, then
+to a slug of `APP_NAME`. Set it explicitly to a stable identifier: renaming the app would otherwise
+re-pin the service and break every caller.
 
 **Choosing a secret mode.** With one shared `SERVICE_JWT_SECRET`, possession of the secret is
 the only proof — any holder can mint a token claiming any `iss`, so the issuer allow-list is a

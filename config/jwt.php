@@ -42,7 +42,12 @@ return [
         // Per-issuer mode (recommended): "billing:<secret>,api:<secret>".
         // Binds each `iss` to its own secret; overrides `secret` when set.
         'secrets' => env('SERVICE_JWT_SECRETS'),
-        'issuer' => env('JWT_SERVICE_ISSUER', env('APP_SERVICE')),
+        // This service's own name: the `aud` every inbound service token must carry
+        // (and the default `iss` below). Set it explicitly to a STABLE identifier —
+        // unset, it falls back to a host's `app.service`, then to a slug of
+        // `app.name`, which can change and silently re-pin every caller.
+        'name' => env('JWT_SERVICE_NAME'),
+        'issuer' => env('JWT_SERVICE_ISSUER', env('APP_SERVICE')), // unset ⇒ the service name
         'audience' => env('JWT_SERVICE_AUDIENCE'),
         'ttl' => (int) env('SERVICE_JWT_TTL', 60),
         'issuers' => array_values(array_filter(array_map('trim', explode(',', (string) env('JWT_SERVICE_ISSUERS', ''))))), // allow-list; empty ⇒ any

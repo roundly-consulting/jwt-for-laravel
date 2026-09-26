@@ -9,8 +9,10 @@ use RoundlyConsulting\Jwt\Denylist\CacheDenylist;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
 use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
 use RoundlyConsulting\Jwt\Jose\Claims;
+use RoundlyConsulting\Jwt\Jose\Exceptions\ClaimMismatch;
 use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenIssuer;
 use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenVerifier;
+use RoundlyConsulting\Jwt\ServiceTokens\Exceptions\ServiceAuthMisconfigured;
 use RoundlyConsulting\Jwt\ServiceTokens\NativeServiceTokenService;
 use RoundlyConsulting\Jwt\ServiceTokens\ServiceGuard;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenIssuer;
@@ -191,3 +193,53 @@ it('prefers per-issuer secrets over the shared secret in about', function (): vo
 
     expect(Artisan::output())->toContain('HS256 (per-issuer secrets)');
 });
+
+/*
+ * The service's own name — what inbound service tokens must carry as `aud`, and the
+ * default `iss` of the tokens it mints. A stock Laravel app has no `app.service`
+ * key, so reading only that left audience pinning misconfigured out of the box. The
+ * package owns `jwt.service.name`; a host's `app.service` still wins over the
+ * app-name fallback, so services that define it keep their identity unchanged.
+ */
+function serviceTokenFor(string $audience): string
+{
+    return app(NativeServiceTokenService::class)->issue($audience)->token;
+}
+
+it('names the service after the app when neither jwt.service.name nor app.service is set', function (): void {
+    config(['app.name' => 'Billing API', 'app.service' => null, 'jwt.service.issuer' => 'caller', 'jwt.service.secret' => 'unit-test-service-secret-0123456789ab']);
+
+    $service = app(NativeServiceTokenService::class);
+
+    expect($service->verify(serviceTokenFor('billing-api'))->string('aud'))->toBe('billing-api')
+        ->and(fn () => $service->verify(serviceTokenFor('Billing API')))->toThrow(ClaimMismatch::class);
+});
+
+it('prefers jwt.service.name, then app.service, then the app name', function (array $config, string $expected): void {
+    config(['app.name' => 'Billing API', 'jwt.service.issuer' => 'caller', 'jwt.service.secret' => 'unit-test-service-secret-0123456789ab', ...$config]);
+
+    expect(app(NativeServiceTokenService::class)->verify(serviceTokenFor($expected))->string('aud'))->toBe($expected);
+})->with([
+    'jwt.service.name wins' => [['jwt.service.name' => 'billing', 'app.service' => 'cosmos-billing'], 'billing'],
+    'app.service next (a host-published config without the name key)' => [['jwt.service.name' => null, 'app.service' => 'cosmos-billing'], 'cosmos-billing'],
+    'blank name falls through' => [['jwt.service.name' => '  ', 'app.service' => 'cosmos-billing'], 'cosmos-billing'],
+]);
+
+it('mints under the service name when no issuer is configured', function (): void {
+    config([
+        'app.name' => 'Billing API',
+        'app.service' => null,
+        'jwt.service.issuer' => null,
+        'jwt.service.secret' => 'unit-test-service-secret-0123456789ab',
+    ]);
+
+    $issued = app(NativeServiceTokenService::class)->issue('billing-api');
+
+    expect(app(NativeServiceTokenService::class)->verify($issued->token)->string('iss'))->toBe('billing-api');
+});
+
+it('still fails closed, naming the key to set, when no service name can be derived', function (): void {
+    config(['app.name' => '', 'app.service' => null, 'jwt.service.name' => null, 'jwt.service.issuer' => 'caller', 'jwt.service.secret' => 'unit-test-service-secret-0123456789ab']);
+
+    app(NativeServiceTokenService::class)->verify(serviceTokenFor('anything'));
+})->throws(ServiceAuthMisconfigured::class, 'JWT_SERVICE_NAME');

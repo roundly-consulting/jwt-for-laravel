@@ -12,6 +12,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use RoundlyConsulting\Jwt\Console\GenerateKeysCommand;
 use RoundlyConsulting\Jwt\Denylist\CacheDenylist;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
@@ -88,19 +89,23 @@ final class JwtServiceProvider extends PackageServiceProvider
             (int) config('jwt.leeway'),
         ));
 
-        $this->app->singleton(NativeServiceTokenService::class, fn (Application $app): NativeServiceTokenService => new NativeServiceTokenService(
-            $app->make(Encoder::class),
-            $app->make(Decoder::class),
-            $this->nullableString(config('jwt.service.secret')),
-            (string) config('jwt.service.issuer'),
-            $this->nullableString(config('jwt.service.audience')),
-            (int) config('jwt.service.ttl'),
-            $this->stringList(config('jwt.service.issuers')),
-            (string) config('app.service'),
-            (int) config('jwt.leeway'),
-            $this->dispatcher($app),
-            $this->secretMap(config('jwt.service.secrets')),
-        ));
+        $this->app->singleton(NativeServiceTokenService::class, function (Application $app): NativeServiceTokenService {
+            $serviceName = $this->serviceName();
+
+            return new NativeServiceTokenService(
+                $app->make(Encoder::class),
+                $app->make(Decoder::class),
+                $this->nullableString(config('jwt.service.secret')),
+                $this->nullableString(config('jwt.service.issuer')) ?? $serviceName,
+                $this->nullableString(config('jwt.service.audience')),
+                (int) config('jwt.service.ttl'),
+                $this->stringList(config('jwt.service.issuers')),
+                $serviceName,
+                (int) config('jwt.leeway'),
+                $this->dispatcher($app),
+                $this->secretMap(config('jwt.service.secrets')),
+            );
+        });
 
         $this->app->bind(ServiceTokenIssuer::class, NativeServiceTokenService::class);
         $this->app->bind(ServiceTokenVerifier::class, NativeServiceTokenService::class);
@@ -248,6 +253,26 @@ final class JwtServiceProvider extends PackageServiceProvider
     private function dispatcher(Application $app): ?Dispatcher
     {
         return $app->bound(Dispatcher::class) ? $app->make(Dispatcher::class) : null;
+    }
+
+    /**
+     * This service's own name — the `aud` inbound service tokens must carry, and
+     * the default `iss` of the ones it mints: `jwt.service.name`, else a host's
+     * `app.service` (not a stock Laravel key, but services that define it keep
+     * their identity), else a slug of `app.name`. '' when none can be derived, so
+     * verification fails closed instead of pinning nothing.
+     */
+    private function serviceName(): string
+    {
+        foreach ([config('jwt.service.name'), config('app.service')] as $value) {
+            if (is_string($value) && trim($value) !== '') {
+                return trim($value);
+            }
+        }
+
+        $appName = config('app.name');
+
+        return is_string($appName) ? Str::slug($appName) : '';
     }
 
     private function nullableString(mixed $value): ?string

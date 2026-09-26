@@ -27,7 +27,7 @@ final class ServiceAuthMisconfigured extends RuntimeException
 
     public static function missingIssuer(): self
     {
-        return new self('Service token auth is misconfigured: JWT_SERVICE_ISSUER (or APP_SERVICE) is not set.');
+        return new self('Service token auth is misconfigured: JWT_SERVICE_ISSUER is not set and no service name (JWT_SERVICE_NAME) could be derived.');
     }
 
     public static function missingAudience(): self
@@ -37,7 +37,7 @@ final class ServiceAuthMisconfigured extends RuntimeException
 
     public static function missingServiceName(): self
     {
-        return new self('Service token auth is misconfigured: app.service is not set, so inbound audiences cannot be pinned.');
+        return new self('Service token auth is misconfigured: no service name — set JWT_SERVICE_NAME (jwt.service.name), so inbound audiences can be pinned.');
     }
 
     public static function ownIssuerSecretMissing(string $issuer): self

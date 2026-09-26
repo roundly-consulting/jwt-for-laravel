@@ -20,3 +20,6 @@ All notable changes to `jwt-for-laravel` will be documented in this file.
   for `leeway` seconds after `exp`.
 - An uncallable `token_version` (global or per guard) now throws instead of silently switching
   version checks off.
+- Service-token audience pinning no longer depends on `app.service`, which a stock Laravel app
+  doesn't define: the service name is the new `jwt.service.name` (`JWT_SERVICE_NAME`), falling back
+  to a host's `app.service`, then a slug of `app.name`; `service.issuer` falls back to it too.
