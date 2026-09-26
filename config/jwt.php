@@ -17,10 +17,14 @@ return [
     'kid' => env('JWT_KID'),                          // emit-only metadata when set
 
     // ── User guard ──────────────────────────────────────────────────────
+    // Defaults for every `jwt` guard. With several jwt guards (e.g. `users`
+    // and `clients`), each `auth.guards.<name>` array may override `audience`,
+    // `scope`, `token_version`, `check_denylist` and `identity`; give each
+    // guard its own `audience`, or one guard's tokens authenticate on another.
     'guard' => [
         'scope' => 'access',                              // required scope to authenticate
         'identity' => TokenUser::class,                   // claims-mode identity class
-        'token_version' => null,                          // callable|invokable-class|null: fn(Authenticatable): int
+        'token_version' => null,                          // invokable-class|callable|null: fn(Authenticatable): int (closures break config:cache)
         'check_denylist' => (bool) env('JWT_CHECK_DENYLIST', true),
     ],
 

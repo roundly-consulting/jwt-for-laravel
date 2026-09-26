@@ -131,7 +131,8 @@ $current = Jwt::claims();                 // current request's claims, or null
 ```
 
 Facade surface: `mintAccessToken()`, `mint()`, `mintChallengeToken()`, `mintEmailVerifyToken()`,
-`verify()`, `service()`, `caller()`, `denylist()`, `logout()`, `denyClaims()`, `claims()`.
+`verify()`, `service()`, `caller()`, `denylist()`, `logout()`, `denyClaims()`, `claims()`,
+`audienceFor()`, `guardSettings()`.
 
 ### Mint a user access token
 
@@ -149,6 +150,23 @@ $issued = app(UserTokenIssuer::class)->mintAccessToken(
 $issued->token;      // the compact JWS string
 $issued->expiresAt;  // CarbonImmutable
 $issued->jti;        // the token id (store it to denylist later)
+```
+
+The request also carries the minting parameters and the OIDC session claims. `audience()` and
+`ttl()` steer the issuer (they are never written into the payload); `sid`, `amr` and `auth_time`
+are emitted only when you set them, so existing call sites mint exactly what they always did:
+
+```php
+AccessTokenRequest::for($user->id)
+    ->audience(Jwt::audienceFor('clients'))   // aud — defaults to jwt.audience
+    ->ttl(600)                                // seconds — defaults to jwt.ttl
+    ->sessionId($familyId)                    // sid
+    ->authMethods('pwd', 'otp', 'mfa')        // amr (RFC 8176)
+    ->authTime($loggedInAt);                  // auth_time — int or any DateTimeInterface
+
+$claims->sessionId();    // ?string
+$claims->authMethods();  // list<string>, [] when absent
+$claims->authTime();     // ?int
 ```
 
 ### Challenge, email-verify and custom scopes
@@ -184,6 +202,8 @@ Jwt::mint($subject, Scope::Access, ttl: 900);  // pass an enum case, or any stri
 $claims = Jwt::verify($jwt);   // or app(UserTokenVerifier::class)->verify($jwt)
 $claims->string('sub');
 $claims->list('permissions');
+
+Jwt::verify($jwt, Jwt::audienceFor('clients'));   // pin another audience for this call
 ```
 
 Invalid tokens throw a `RoundlyConsulting\Jwt\Jose\Exceptions\JwtException` subclass
@@ -214,13 +234,52 @@ Route::middleware('auth:api')->get('/me', fn () => request()->user());
 Route::middleware('auth:service')->post('/internal/sync', SyncController::class);
 ```
 
-In provider mode, set `guard.token_version` so a bumped version invalidates old tokens:
+In provider mode, set `guard.token_version` so a bumped version invalidates old tokens. Prefer an
+invokable class — it survives `php artisan config:cache`, a closure does not:
 
 ```php
 'guard' => [
-    'token_version' => fn (\App\Models\User $user): int => $user->token_version,
+    'token_version' => \App\Auth\TokenVersion::class,   // __invoke(Authenticatable $user): int
 ],
 ```
+
+### Multiple guards
+
+Several account types (say `users` and `clients`, each with its own table) can each run on their
+own `jwt` guard. Every `jwt` guard resolves `sub` through **its own** provider, so give each guard
+its **own audience** — otherwise a users token with `sub = 5` authenticates as client #5:
+
+```php
+// config/auth.php
+'guards' => [
+    'users'   => ['driver' => 'jwt', 'provider' => 'users',   'audience' => env('JWT_USERS_AUDIENCE', 'app-users')],
+    'clients' => ['driver' => 'jwt', 'provider' => 'clients', 'audience' => env('JWT_CLIENTS_AUDIENCE', 'app-clients')],
+],
+```
+
+Each guard reads these optional keys from its own `auth.guards.<name>` array, falling back to the
+global value:
+
+| `auth.guards.<name>` key | Falls back to | Type |
+|---|---|---|
+| `audience` | `jwt.audience` | non-empty string |
+| `scope` | `jwt.guard.scope` | string |
+| `token_version` | `jwt.guard.token_version` | invokable class-string (or closure — not config-cacheable) |
+| `check_denylist` | `jwt.guard.check_denylist` | bool |
+| `identity` | `jwt.guard.identity` | class-string of a `ClaimsAuthenticatable` |
+
+Mint for, verify against and read a specific guard:
+
+```php
+Jwt::mintAccessToken(AccessTokenRequest::for($client->id)->audience(Jwt::audienceFor('clients')));
+
+Jwt::audienceFor('clients');     // 'app-clients' — auth.guards.clients.audience, else jwt.audience
+Jwt::guardSettings('clients');   // JwtGuardSettings: guard, audience, scope, checkDenylist, identity, tokenVersion
+Jwt::claims('clients');          // that guard's verified claims, or null
+```
+
+`audienceFor()` / `guardSettings()` throw `JwtMisconfigured` for a guard that is not a `jwt` guard.
+`jwt.audience` stays required: it is the default every guard without its own `audience` uses.
 
 ### Issue and send a service token
 
