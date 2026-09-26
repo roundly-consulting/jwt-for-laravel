@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
+use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
 use RoundlyConsulting\Jwt\Facades\Jwt;
 use RoundlyConsulting\Jwt\Support\KeyRepository;
 use RoundlyConsulting\Jwt\Tests\Fixtures\CustomIdentity;
@@ -229,6 +230,27 @@ it('prefers the guard\'s token_version over the global one', function (): void {
     $this->withToken(mint('access', ['tv' => 7]))->getJson('/protected')->assertOk();
     $this->withToken(mint('access', ['tv' => 1]))->getJson('/protected')->assertUnauthorized();
 });
+
+/*
+ * A token_version the guard cannot call must never silently switch the freshness
+ * check off: a bumped version would then revoke nothing ("log out everywhere" that
+ * logs nobody out). It is an operator error, surfaced like a missing key — a 500,
+ * not a quiet pass.
+ */
+it('refuses a token_version it cannot resolve to a callable', function (string $scope, mixed $value): void {
+    config($scope === 'guard'
+        ? ['auth.guards.api' => ['driver' => 'jwt', 'token_version' => $value]]
+        : ['jwt.guard.token_version' => $value]);
+
+    Auth::guard('api');
+})->with([
+    'unknown class (guard)' => ['guard', 'App\\Auth\\MissingTokenVersion'],
+    'unknown class (global)' => ['global', 'App\\Auth\\MissingTokenVersion'],
+    'class without __invoke (guard)' => ['guard', stdClass::class],
+    'class without __invoke (global)' => ['global', stdClass::class],
+    'not a class-string or closure (guard)' => ['guard', ['not', 'callable']],
+    'not a class-string or closure (global)' => ['global', 42],
+])->throws(JwtMisconfigured::class, 'token_version');
 
 it('survives a config:cache round-trip with an invokable per-guard token_version', function (): void {
     config(['auth.guards.api' => ['driver' => 'jwt', 'audience' => 'clients', 'token_version' => TokenVersionResolver::class]]);

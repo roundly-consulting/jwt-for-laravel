@@ -235,7 +235,9 @@ Route::middleware('auth:service')->post('/internal/sync', SyncController::class)
 ```
 
 In provider mode, set `guard.token_version` so a bumped version invalidates old tokens. Prefer an
-invokable class — it survives `php artisan config:cache`, a closure does not:
+invokable class — it survives `php artisan config:cache`, a closure does not. A value the guard
+cannot call (missing class, no `__invoke`) throws `JwtMisconfigured` rather than silently skipping
+the check:
 
 ```php
 'guard' => [

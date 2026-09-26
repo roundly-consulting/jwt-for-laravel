@@ -198,8 +198,8 @@ final class JwtManager
             identity: $this->identityClass($options['identity'] ?? null)
                 ?? $this->identityClass($config->get('jwt.guard.identity'))
                 ?? TokenUser::class,
-            tokenVersion: $this->tokenVersion($options['token_version'] ?? null)
-                ?? $this->tokenVersion($config->get('jwt.guard.token_version')),
+            tokenVersion: $this->tokenVersion($options['token_version'] ?? null, $guard)
+                ?? $this->tokenVersion($config->get('jwt.guard.token_version'), $guard),
         );
     }
 
@@ -262,9 +262,21 @@ final class JwtManager
         return is_string($value) && is_subclass_of($value, ClaimsAuthenticatable::class) ? $value : null;
     }
 
-    private function tokenVersion(mixed $value): string|Closure|null
+    /**
+     * A configured `token_version`: a closure or a class-string as-is, null when
+     * unset or blank (defer to the global value). Anything else is refused rather
+     * than read as "unset" — that would silently switch the freshness check off.
+     *
+     * @throws JwtMisconfigured
+     */
+    private function tokenVersion(mixed $value, string $guard): string|Closure|null
     {
-        return $value instanceof Closure ? $value : $this->nonEmptyString($value);
+        return match (true) {
+            $value instanceof Closure => $value,
+            $value === null, is_string($value) && trim($value) === '' => null,
+            is_string($value) => $value,
+            default => throw JwtMisconfigured::invalidTokenVersion($guard),
+        };
     }
 
     private function events(): ?Dispatcher

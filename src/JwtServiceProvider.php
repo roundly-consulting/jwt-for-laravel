@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Gate;
 use RoundlyConsulting\Jwt\Console\GenerateKeysCommand;
 use RoundlyConsulting\Jwt\Denylist\CacheDenylist;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
+use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
 use RoundlyConsulting\Jwt\Jose\Decoder;
 use RoundlyConsulting\Jwt\Jose\Encoder;
 use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenIssuer;
@@ -183,12 +184,17 @@ final class JwtServiceProvider extends PackageServiceProvider
 
             if ($configured instanceof Closure) {
                 $tokenVersion = static fn (Authenticatable $user): int => (int) $configured($user);
-            } elseif (is_string($configured) && class_exists($configured)) {
-                $instance = $app->make($configured);
+            } elseif (is_string($configured)) {
+                // Fail closed: a class-string that is missing or not invokable must not
+                // quietly disable the freshness check (a bumped version would then
+                // revoke nothing) — surface it as the operator error it is.
+                $instance = class_exists($configured) ? $app->make($configured) : null;
 
-                if (is_callable($instance)) {
-                    $tokenVersion = static fn (Authenticatable $user): int => (int) $instance($user);
+                if (! is_callable($instance)) {
+                    throw JwtMisconfigured::invalidTokenVersion($name);
                 }
+
+                $tokenVersion = static fn (Authenticatable $user): int => (int) $instance($user);
             }
 
             $guard = new JwtGuard(
