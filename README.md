@@ -385,7 +385,7 @@ composer test
 
 ## Changelog & Contributing
 
-Please see the commit history for changes. Issues and pull requests are welcome.
+Please see [CHANGELOG.md](CHANGELOG.md) for what has changed. Issues and pull requests are welcome.
 
 ## License
 
