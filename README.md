@@ -263,7 +263,7 @@ global value:
 | `auth.guards.<name>` key | Falls back to | Type |
 |---|---|---|
 | `audience` | `jwt.audience` | non-empty string |
-| `scope` | `jwt.guard.scope` | string |
+| `scope` | `jwt.guard.scope` | string or `Scope` case |
 | `token_version` | `jwt.guard.token_version` | invokable class-string (or closure — not config-cacheable) |
 | `check_denylist` | `jwt.guard.check_denylist` | bool |
 | `identity` | `jwt.guard.identity` | class-string of a `ClaimsAuthenticatable` |

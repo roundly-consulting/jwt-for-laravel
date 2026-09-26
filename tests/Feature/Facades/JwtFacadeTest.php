@@ -65,6 +65,23 @@ it('mints a generic token through the facade', function (): void {
     expect(Jwt::verify($issued->token)->string('scope'))->toBe('custom');
 });
 
+it('accepts a Scope case through the facade, as the README shows', function (): void {
+    $subject = 'user-1';
+
+    $issued = Jwt::mint($subject, Scope::Access, ttl: 900);
+
+    expect(Jwt::verify($issued->token)->string('scope'))->toBe('access');
+});
+
+it('mints the same claims for a Scope case and its string value', function (): void {
+    $fromEnum = Jwt::verify(Jwt::mint('user-1', Scope::TwoFaPending, 120)->token)->all();
+    $fromString = Jwt::verify(Jwt::mint('user-1', '2fa_pending', 120)->token)->all();
+
+    unset($fromEnum['jti'], $fromString['jti']);
+
+    expect($fromEnum)->toBe($fromString);
+});
+
 it('exposes the bound service token service and caller', function (): void {
     expect(Jwt::service())->toBeInstanceOf(NativeServiceTokenService::class)
         ->and(Jwt::service())->toBe(app(NativeServiceTokenService::class))

@@ -9,6 +9,7 @@ use RoundlyConsulting\Jwt\Tests\Fixtures\CustomIdentity;
 use RoundlyConsulting\Jwt\Tests\Fixtures\TokenVersionResolver;
 use RoundlyConsulting\Jwt\UserTokens\JwtGuard;
 use RoundlyConsulting\Jwt\UserTokens\JwtGuardSettings;
+use RoundlyConsulting\Jwt\UserTokens\Scope;
 use RoundlyConsulting\Jwt\UserTokens\TokenUser;
 
 beforeEach(function (): void {
@@ -40,6 +41,7 @@ it('honours a per-guard option', function (string $key, mixed $value, string $pr
 })->with([
     'audience' => ['audience', 'clients', 'audience', 'clients'],
     'scope' => ['scope', 'custom', 'scope', 'custom'],
+    'scope (enum case)' => ['scope', Scope::TwoFaPending, 'scope', '2fa_pending'],
     'check_denylist' => ['check_denylist', false, 'checkDenylist', false],
     'check_denylist (env string)' => ['check_denylist', 'false', 'checkDenylist', false],
     'identity' => ['identity', CustomIdentity::class, 'identity', CustomIdentity::class],
@@ -68,6 +70,12 @@ it('falls back to the global option when the per-guard value is unusable', funct
     'identity not a ClaimsAuthenticatable' => ['identity', stdClass::class, 'identity', TokenUser::class],
     'blank token_version' => ['token_version', '', 'tokenVersion', null],
 ]);
+
+it('normalises a global Scope case to its wire value', function (): void {
+    config(['jwt.guard.scope' => Scope::EmailVerify]);
+
+    expect(settingsFor([])->scope)->toBe('email_verify');
+});
 
 it('keeps a configured token_version closure as-is', function (): void {
     $resolver = fn (): int => 3;

@@ -11,7 +11,7 @@ use RoundlyConsulting\Jwt\JwtManager;
  * The one-call entry point to the package.
  *
  * @method static \RoundlyConsulting\Jwt\UserTokens\IssuedToken mintAccessToken(\RoundlyConsulting\Jwt\UserTokens\AccessTokenRequest $request)
- * @method static \RoundlyConsulting\Jwt\UserTokens\IssuedToken mint(string $subject, string $scope, int $ttl, array<string, mixed> $extraClaims = [], string|null $audience = null)
+ * @method static \RoundlyConsulting\Jwt\UserTokens\IssuedToken mint(string $subject, \RoundlyConsulting\Jwt\UserTokens\Scope|string $scope, int $ttl, array<string, mixed> $extraClaims = [], string|null $audience = null)
  * @method static \RoundlyConsulting\Jwt\UserTokens\IssuedToken mintChallengeToken(string $subject, array<string, mixed> $extraClaims = [])
  * @method static \RoundlyConsulting\Jwt\UserTokens\IssuedToken mintEmailVerifyToken(string $subject, string $email)
  * @method static \RoundlyConsulting\Jwt\Jose\Claims verify(string $jwt, string|null $audience = null)

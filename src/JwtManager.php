@@ -25,6 +25,7 @@ use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
 use RoundlyConsulting\Jwt\UserTokens\IssuedToken;
 use RoundlyConsulting\Jwt\UserTokens\JwtGuard;
 use RoundlyConsulting\Jwt\UserTokens\JwtGuardSettings;
+use RoundlyConsulting\Jwt\UserTokens\Scope;
 use RoundlyConsulting\Jwt\UserTokens\TokenUser;
 
 /**
@@ -45,9 +46,11 @@ final class JwtManager
     }
 
     /**
+     * Pass a {@see Scope} case for a built-in scope, or any string for a custom one.
+     *
      * @param  array<string, mixed>  $extraClaims
      */
-    public function mint(string $subject, string $scope, int $ttl, array $extraClaims = [], ?string $audience = null): IssuedToken
+    public function mint(string $subject, Scope|string $scope, int $ttl, array $extraClaims = [], ?string $audience = null): IssuedToken
     {
         return $this->issuer()->mint($subject, $scope, $ttl, $extraClaims, $audience);
     }
@@ -190,7 +193,7 @@ final class JwtManager
         return new JwtGuardSettings(
             guard: $guard,
             audience: $this->nonEmptyString($options['audience'] ?? null) ?? (string) $config->get('jwt.audience'),
-            scope: is_string($options['scope'] ?? null) ? $options['scope'] : (string) $config->get('jwt.guard.scope'),
+            scope: $this->scope($options['scope'] ?? null) ?? $this->globalScope($config->get('jwt.guard.scope')),
             checkDenylist: $this->bool($options['check_denylist'] ?? null) ?? (bool) $config->get('jwt.guard.check_denylist'),
             identity: $this->identityClass($options['identity'] ?? null)
                 ?? $this->identityClass($config->get('jwt.guard.identity'))
@@ -217,6 +220,24 @@ final class JwtManager
         }
 
         return $guards;
+    }
+
+    /**
+     * A per-guard scope: a {@see Scope} case normalised to its wire value, or a
+     * plain string as-is. Anything else defers to the global scope.
+     */
+    private function scope(mixed $value): ?string
+    {
+        return match (true) {
+            $value instanceof Scope => $value->value,
+            is_string($value) => $value,
+            default => null,
+        };
+    }
+
+    private function globalScope(mixed $value): string
+    {
+        return $value instanceof Scope ? $value->value : (string) $value;
     }
 
     private function nonEmptyString(mixed $value): ?string
