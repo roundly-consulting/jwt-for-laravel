@@ -6,7 +6,10 @@ use RoundlyConsulting\Jwt\UserTokens\TokenUser;
 
 return [
     // ── User tokens (RS256) ──────────────────────────────────────────────
-    'private_key_path' => env('JWT_PRIVATE_KEY_PATH'),   // nullable: verify-only apps omit it
+    // `jwt:generate-keys` writes both. Only minting reads the private key, so a
+    // verify-only app just never creates it. `.key` because a stock Laravel
+    // `.gitignore` already excludes `/storage/*.key`.
+    'private_key_path' => env('JWT_PRIVATE_KEY_PATH', storage_path('jwt-private.key')),
     'public_key_path' => env('JWT_PUBLIC_KEY_PATH', storage_path('jwt-public.pem')),
     'issuer' => env('JWT_ISSUER'),                    // required: minting/verifying throws when empty
     'audience' => env('JWT_AUDIENCE'),                // required: minting/verifying throws when empty

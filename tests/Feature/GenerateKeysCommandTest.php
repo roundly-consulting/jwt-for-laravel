@@ -2,7 +2,10 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Artisan;
 use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
+use RoundlyConsulting\Jwt\Facades\Jwt;
+use RoundlyConsulting\Jwt\UserTokens\AccessTokenRequest;
 
 beforeEach(function (): void {
     $this->dir = sys_get_temp_dir().'/jwt-keys-'.uniqid();
@@ -72,4 +75,38 @@ it('fails when no public key path is configured', function (): void {
     config(['jwt.public_key_path' => null]);
 
     $this->artisan('jwt:generate-keys')->assertFailed();
+});
+
+/*
+ * The README's install step, against the SHIPPED config (no JWT_* env): the
+ * private key path used to default to null, so `jwt:generate-keys` refused to run
+ * until the host invented a path.
+ */
+it('generates keys the app then signs and verifies with, under the shipped config', function (): void {
+    app()->useStoragePath($this->dir);
+    config(['jwt' => require __DIR__.'/../../config/jwt.php']);
+    config(['jwt.issuer' => 'jwt-issuer', 'jwt.audience' => 'web']);
+
+    Artisan::call('about', ['--only' => 'jwt']);
+    expect(Artisan::output())->toMatch('/Signing key\W+MISSING/');
+
+    $this->artisan('jwt:generate-keys')->assertSuccessful();
+
+    $private = $this->dir.'/jwt-private.key';
+    $public = $this->dir.'/jwt-public.pem';
+
+    expect(is_file($private))->toBeTrue()
+        ->and(is_file($public))->toBeTrue()
+        ->and(substr(sprintf('%o', fileperms($private)), -4))->toBe('0600');
+
+    Artisan::call('about', ['--only' => 'jwt']);
+    $about = Artisan::output();
+
+    expect($about)->toMatch('/Signing key\W+SET/')
+        ->and($about)->toMatch('/Verification key\W+SET/');
+
+    $token = Jwt::mintAccessToken(AccessTokenRequest::for('user-1'))->token;
+    expect(Jwt::verify($token)->string('sub'))->toBe('user-1');
+
+    unlink($private);
 });

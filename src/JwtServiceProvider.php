@@ -40,6 +40,8 @@ final class JwtServiceProvider extends PackageServiceProvider
 {
     public function configurePackage(Package $package): void
     {
+        $app = $this->app;
+
         $package
             ->name('jwt')
             ->hasConfigFile()
@@ -48,8 +50,8 @@ final class JwtServiceProvider extends PackageServiceProvider
                 // Booleans and algorithm names only — never key material, a
                 // secret, or a path that would point at one.
                 'User tokens' => 'RS256',
-                'Signing key' => self::configured('jwt.private_key_path'),
-                'Verification key' => self::configured('jwt.public_key_path'),
+                'Signing key' => self::keyFile('jwt.private_key_path', $app->basePath()),
+                'Verification key' => self::keyFile('jwt.public_key_path', $app->basePath()),
                 'Issuer' => self::configured('jwt.issuer'),
                 'Audience' => self::configured('jwt.audience'),
                 'Access token TTL' => self::seconds('jwt.ttl'),
@@ -142,6 +144,24 @@ final class JwtServiceProvider extends PackageServiceProvider
         $value = config($key);
 
         return is_string($value) && trim($value) !== '' ? 'SET' : 'MISSING';
+    }
+
+    /**
+     * Whether a configured key path points at a readable file — both paths have
+     * defaults, so "configured" alone would always read SET. The path itself is
+     * never echoed.
+     */
+    private static function keyFile(string $key, string $basePath): string
+    {
+        $path = config($key);
+
+        if (! is_string($path) || trim($path) === '') {
+            return 'MISSING';
+        }
+
+        $path = KeyPath::resolve($path, $basePath);
+
+        return is_file($path) && is_readable($path) ? 'SET' : 'MISSING';
     }
 
     private static function seconds(string $key): string
