@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
+use Illuminate\Auth\GenericUser;
 use Illuminate\Http\Request;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
 use RoundlyConsulting\Jwt\Jose\Claims;
@@ -133,4 +134,49 @@ it('re-resolves when the request instance changes', function (): void {
     $guard->setRequest(requestWithToken(null));
 
     expect($guard->user())->toBeNull();
+});
+
+it('keeps a user set with setUser, with its claims, even after the request changes', function (): void {
+    $guard = guardFor(requestWithToken(null));
+    $user = TokenUser::fromClaims(new Claims(['sub' => 'set-1']));
+
+    $guard->setUser($user);
+
+    expect($guard->user())->toBe($user)
+        ->and($guard->hasUser())->toBeTrue()
+        ->and($guard->payload()?->string('sub'))->toBe('set-1');
+
+    $guard->setRequest(requestWithToken('good'));
+
+    expect($guard->user())->toBe($user);
+});
+
+it('drops the previous token payload when a claim-less user is set', function (): void {
+    $guard = guardFor(requestWithToken('good'));
+    $guard->user();
+
+    $guard->setUser(new GenericUser(['id' => 9]));
+
+    expect($guard->payload())->toBeNull()
+        ->and($guard->user()?->getAuthIdentifier())->toBe(9);
+});
+
+it('forgets a set user and falls back to the bearer token', function (): void {
+    $guard = guardFor(requestWithToken('good'));
+    $guard->setUser(new GenericUser(['id' => 9]));
+
+    $guard->forgetUser();
+
+    expect($guard->hasUser())->toBeFalse()
+        ->and($guard->payload())->toBeNull()
+        ->and($guard->user()?->getAuthIdentifier())->toBe('user-1');
+});
+
+it('does not report an earlier request\'s token user as present', function (): void {
+    $guard = guardFor(requestWithToken('good'));
+    $guard->user();
+
+    $guard->setRequest(requestWithToken(null));
+
+    expect($guard->hasUser())->toBeFalse();
 });

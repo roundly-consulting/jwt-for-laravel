@@ -3,8 +3,12 @@
 declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
+use RoundlyConsulting\Jwt\Facades\Jwt;
+use RoundlyConsulting\Jwt\Jose\Claims;
 use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenIssuer;
+use RoundlyConsulting\Jwt\ServiceTokens\ServiceIdentity;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenIssuer;
 
 beforeEach(function (): void {
@@ -55,4 +59,20 @@ it('surfaces a missing secret as a 500, not a 401', function (): void {
     config(['jwt.service.secret' => '']);
 
     $this->withToken('a.b.c')->getJson('/internal')->assertStatus(500);
+});
+
+/*
+ * `$this->actingAs($identity, 'service')` goes through `setUser()`; the guard used to
+ * discard it and re-resolve from the (absent) bearer — a 401.
+ */
+it('keeps a service identity set through Laravel actingAs across requests', function (): void {
+    $identity = ServiceIdentity::fromClaims(new Claims(['iss' => 'billing', 'scope' => 'service']));
+
+    $this->actingAs($identity, 'service');
+
+    $this->getJson('/internal')->assertOk()->assertJson(['iss' => 'billing']);
+    $this->getJson('/internal')->assertOk()->assertJson(['iss' => 'billing']);
+
+    expect(Auth::guard('service')->user())->toBe($identity)
+        ->and(Jwt::services()->claims()?->string('iss'))->toBe('billing');
 });

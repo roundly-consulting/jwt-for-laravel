@@ -28,6 +28,11 @@ use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
  * never a silent 401. The claims are re-resolved whenever the bound request
  * instance changes.
  *
+ * A user handed to {@see setUser()} (Laravel's `actingAs($user, 'api')`, an
+ * impersonation middleware) is kept until {@see forgetUser()} — across request
+ * changes too, like Laravel's own guards — instead of being re-resolved from a
+ * bearer the request never carried.
+ *
  * The audience is per guard on purpose: every guard resolves `sub` through its
  * *own* provider, so two guards accepting the same audience would let a token
  * minted for one account type authenticate as the same-keyed row of another.
@@ -39,6 +44,9 @@ final class JwtGuard implements Guard
     private ?Claims $payload = null;
 
     private ?Request $resolvedFor = null;
+
+    /** Whether {@see $user} came from {@see setUser()} rather than a bearer token. */
+    private bool $userWasSet = false;
 
     /**
      * @param  class-string<ClaimsAuthenticatable>  $identityClass
@@ -60,12 +68,11 @@ final class JwtGuard implements Guard
 
     public function user(): ?Authenticatable
     {
-        if ($this->user !== null && $this->resolvedFor === $this->request) {
+        if ($this->hasUser()) {
             return $this->user;
         }
 
-        $this->user = null;
-        $this->payload = null;
+        $this->forgetUser();
         $this->resolvedFor = $this->request;
 
         $token = $this->request->bearerToken();
@@ -100,6 +107,39 @@ final class JwtGuard implements Guard
         }
 
         return $this->resolve($token) !== null;
+    }
+
+    /**
+     * Only the user this guard holds for the *current* request (or one set
+     * explicitly) — never a token user left over from an earlier request.
+     */
+    public function hasUser(): bool
+    {
+        return $this->user !== null && ($this->userWasSet || $this->resolvedFor === $this->request);
+    }
+
+    /**
+     * Authenticate as the given user until {@see forgetUser()}. Its claims back
+     * {@see payload()} when it carries any (a {@see TokenUser}); otherwise the
+     * payload is null.
+     */
+    public function setUser(Authenticatable $user): static
+    {
+        $this->user = $user;
+        $this->payload = $user instanceof TokenUser ? $user->claims() : null;
+        $this->userWasSet = true;
+
+        return $this;
+    }
+
+    public function forgetUser(): static
+    {
+        $this->user = null;
+        $this->payload = null;
+        $this->userWasSet = false;
+        $this->resolvedFor = null;
+
+        return $this;
     }
 
     public function setRequest(Request $request): self

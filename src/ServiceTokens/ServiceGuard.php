@@ -20,6 +20,10 @@ use RoundlyConsulting\Jwt\ServiceTokens\Exceptions\ServiceAuthMisconfigured;
  * A rejected token yields a null user (401). A {@see ServiceAuthMisconfigured}
  * (missing secret) is not caught here, so it propagates to a 500 — an operator
  * error must never masquerade as an unauthenticated caller.
+ *
+ * An identity handed to {@see setUser()} (Laravel's `actingAs($identity,
+ * 'service')`) is kept until {@see forgetUser()}, across request changes too;
+ * a bearer-resolved caller is re-resolved whenever the request instance changes.
  */
 final class ServiceGuard implements Guard
 {
@@ -29,6 +33,9 @@ final class ServiceGuard implements Guard
 
     private ?Request $resolvedFor = null;
 
+    /** Whether {@see $user} came from {@see setUser()} rather than a bearer token. */
+    private bool $userWasSet = false;
+
     public function __construct(
         private readonly ServiceTokenVerifier $verifier,
         private Request $request,
@@ -36,12 +43,11 @@ final class ServiceGuard implements Guard
 
     public function user(): ?Authenticatable
     {
-        if ($this->user !== null && $this->resolvedFor === $this->request) {
+        if ($this->hasUser()) {
             return $this->user;
         }
 
-        $this->user = null;
-        $this->payload = null;
+        $this->forgetUser();
         $this->resolvedFor = $this->request;
 
         $token = $this->request->bearerToken();
@@ -83,6 +89,39 @@ final class ServiceGuard implements Guard
         } catch (JwtException) {
             return false;
         }
+    }
+
+    /**
+     * Only the caller this guard holds for the *current* request (or one set
+     * explicitly) — never one left over from an earlier request.
+     */
+    public function hasUser(): bool
+    {
+        return $this->user !== null && ($this->userWasSet || $this->resolvedFor === $this->request);
+    }
+
+    /**
+     * Authenticate as the given identity until {@see forgetUser()}. A
+     * {@see ServiceIdentity}'s claims back {@see payload()}; any other user
+     * leaves it null.
+     */
+    public function setUser(Authenticatable $user): static
+    {
+        $this->user = $user;
+        $this->payload = $user instanceof ServiceIdentity ? $user->claims() : null;
+        $this->userWasSet = true;
+
+        return $this;
+    }
+
+    public function forgetUser(): static
+    {
+        $this->user = null;
+        $this->payload = null;
+        $this->userWasSet = false;
+        $this->resolvedFor = null;
+
+        return $this;
     }
 
     public function setRequest(Request $request): self

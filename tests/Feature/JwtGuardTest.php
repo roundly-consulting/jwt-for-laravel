@@ -9,12 +9,14 @@ use Illuminate\Support\Facades\Schema;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
 use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
 use RoundlyConsulting\Jwt\Facades\Jwt;
+use RoundlyConsulting\Jwt\Jose\Claims;
 use RoundlyConsulting\Jwt\Support\KeyRepository;
 use RoundlyConsulting\Jwt\Tests\Fixtures\CustomIdentity;
 use RoundlyConsulting\Jwt\Tests\Fixtures\TokenVersionResolver;
 use RoundlyConsulting\Jwt\Tests\Fixtures\User;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenIssuer;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
+use RoundlyConsulting\Jwt\UserTokens\TokenUser;
 
 beforeEach(function (): void {
     CarbonImmutable::setTestNow(CarbonImmutable::createFromTimestamp(1_700_000_000));
@@ -264,4 +266,39 @@ it('survives a config:cache round-trip with an invokable per-guard token_version
     $token = app(UserTokenIssuer::class)->mint('user-1', 'access', 900, ['tv' => 7], 'clients')->token;
 
     $this->withToken($token)->getJson('/protected')->assertOk();
+});
+
+/*
+ * Laravel's own `actingAs($user, 'api')` is `setUser()` + `shouldUse()`. The guard
+ * used to drop that user on its first `user()` call (and on every new request of the
+ * test) and re-resolve from the absent bearer, so the request came back 401.
+ */
+it('keeps a user set through Laravel actingAs across requests', function (): void {
+    $user = TokenUser::fromClaims(new Claims(['sub' => 'acting-7', 'scope' => 'access']));
+
+    $this->actingAs($user, 'api');
+
+    $this->getJson('/protected')->assertOk()->assertJson(['id' => 'acting-7']);
+    $this->getJson('/protected')->assertOk()->assertJson(['id' => 'acting-7']);
+
+    expect(Auth::guard('api')->user())->toBe($user)
+        ->and(Jwt::guard('api')->claims()?->string('sub'))->toBe('acting-7');
+});
+
+it('keeps an Eloquent user set through actingAs in provider mode, with no claims', function (): void {
+    config([
+        'auth.guards.api' => ['driver' => 'jwt', 'provider' => 'users'],
+        'auth.providers.users' => ['driver' => 'eloquent', 'model' => User::class],
+    ]);
+
+    Schema::create('users', function ($table): void {
+        $table->increments('id');
+        $table->unsignedInteger('token_version')->default(1);
+    });
+
+    $user = User::query()->create();
+
+    $this->actingAs($user, 'api')->getJson('/protected')->assertOk()->assertJson(['id' => $user->id]);
+
+    expect(Jwt::guard('api')->claims())->toBeNull();
 });

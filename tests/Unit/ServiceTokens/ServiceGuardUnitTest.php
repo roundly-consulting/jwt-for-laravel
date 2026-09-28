@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Auth\GenericUser;
 use Illuminate\Http\Request;
 use RoundlyConsulting\Jwt\Jose\Claims;
 use RoundlyConsulting\Jwt\Jose\Exceptions\InvalidSignature;
@@ -73,4 +74,48 @@ it('re-resolves when the request changes', function (): void {
 
     $guard->setRequest(serviceRequest(null));
     expect($guard->user())->toBeNull();
+});
+
+it('keeps an identity set with setUser, with its claims, even after the request changes', function (): void {
+    $guard = new ServiceGuard(fakeServiceVerifier(), serviceRequest(null));
+    $identity = ServiceIdentity::fromClaims(new Claims(['iss' => 'billing']));
+
+    $guard->setUser($identity);
+
+    expect($guard->user())->toBe($identity)
+        ->and($guard->hasUser())->toBeTrue()
+        ->and($guard->payload()?->string('iss'))->toBe('billing');
+
+    $guard->setRequest(serviceRequest('good'));
+
+    expect($guard->user())->toBe($identity);
+});
+
+it('has no payload for a set user that carries no claims', function (): void {
+    $guard = new ServiceGuard(fakeServiceVerifier(), serviceRequest('good'));
+    $guard->user();
+
+    $guard->setUser(new GenericUser(['id' => 'billing']));
+
+    expect($guard->payload())->toBeNull();
+});
+
+it('forgets a set identity and falls back to the bearer token', function (): void {
+    $guard = new ServiceGuard(fakeServiceVerifier(), serviceRequest('good'));
+    $guard->setUser(new GenericUser(['id' => 'billing']));
+
+    $guard->forgetUser();
+
+    expect($guard->hasUser())->toBeFalse()
+        ->and($guard->payload())->toBeNull()
+        ->and($guard->user()?->getAuthIdentifier())->toBe('logger');
+});
+
+it('does not report an earlier request\'s caller as present', function (): void {
+    $guard = new ServiceGuard(fakeServiceVerifier(), serviceRequest('good'));
+    $guard->user();
+
+    $guard->setRequest(serviceRequest(null));
+
+    expect($guard->hasUser())->toBeFalse();
 });
