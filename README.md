@@ -141,12 +141,67 @@ $issued = Jwt::mintAccessToken(
 
 $claims = Jwt::verify($issued->token);   // RS256 + iss/aud pinned
 Jwt::logout($issued);                     // denylist it (one-call logout)
-$current = Jwt::claims();                 // current request's claims, or null
+$current = Jwt::guard('api')->claims();   // current request's claims on that guard, or null
 ```
 
-Facade surface: `mintAccessToken()`, `mint()`, `mintChallengeToken()`, `mintEmailVerifyToken()`,
-`verify()`, `service()`, `caller()`, `denylist()`, `logout()`, `denyClaims()`, `claims()`,
-`audienceFor()`, `guardSettings()`.
+The whole surface:
+
+```php
+// User tokens (RS256), for the configured jwt.audience
+Jwt::mintAccessToken($request);  Jwt::mint($sub, $scope, $ttl, $claims, $aud);
+Jwt::mintChallengeToken($sub);   Jwt::mintEmailVerifyToken($sub, $email);
+Jwt::verify($jwt, ?$aud);
+
+// One jwt guard — its own audience, settings and current claims
+Jwt::guard('clients')->mintAccessToken($request);   // aud = the guard's audience
+Jwt::guard('clients')->mint($sub, $scope, $ttl, $claims);
+Jwt::guard('clients')->verify($jwt);
+Jwt::guard('clients')->claims();      // ?Claims of the current request on that guard
+Jwt::guard('clients')->settings();    // JwtGuardSettings
+Jwt::guard('clients')->audience();    // string
+
+// Service tokens (HS256)
+Jwt::services()->issue('billing', ['job' => 'sync']);
+Jwt::services()->verify($jwt);
+Jwt::services()->request('billing')->post(...);      // Http client with a fresh bearer
+Jwt::services()->authenticate($pendingRequest, 'billing');
+Jwt::services()->claims();            // ?Claims of the calling service (service-jwt guard)
+
+// Denylist & logout
+Jwt::denylist()->has($jti);  Jwt::denylist()->deny($jti, $until);  Jwt::denylist()->denyToken($issued);
+Jwt::logout($issued);        Jwt::denyClaims($claims);
+
+// Key publishing
+Jwt::publicKey();   // RsaKey — the configured verification key
+Jwt::jwks();        // ['keys' => [[kty, n, e, alg, use, kid?]]] — serve as /.well-known/jwks.json
+```
+
+#### Without the facade
+
+The facade is sugar over `RoundlyConsulting\Jwt\JwtManager` — inject it for the same API. Every
+method delegates to a container-bound contract you can also use directly (this package signs and
+verifies with service objects rather than action classes):
+
+```php
+use RoundlyConsulting\Jwt\JwtManager;
+use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenIssuer;
+use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenIssuer;
+
+final class TokenController
+{
+    public function __construct(private JwtManager $jwt) {}
+
+    public function __invoke(Request $request): JsonResponse
+    {
+        $issued = $this->jwt->guard('users')->mintAccessToken(AccessTokenRequest::for($request->user()->id));
+        // …
+    }
+}
+
+// The contracts behind it:
+app(UserTokenIssuer::class)->mintAccessToken($request);     // NativeUserTokenIssuer
+app(ServiceTokenIssuer::class)->issue('billing');           // NativeServiceTokenService
+```
 
 ### Mint a user access token
 
@@ -172,7 +227,7 @@ are emitted only when you set them, so existing call sites mint exactly what the
 
 ```php
 AccessTokenRequest::for($user->id)
-    ->audience(Jwt::audienceFor('clients'))   // aud — defaults to jwt.audience
+    ->audience('app-clients')                 // aud — defaults to jwt.audience
     ->ttl(600)                                // seconds — defaults to jwt.ttl
     ->sessionId($familyId)                    // sid
     ->authMethods('pwd', 'otp', 'mfa')        // amr (RFC 8176)
@@ -217,7 +272,8 @@ $claims = Jwt::verify($jwt);   // or app(UserTokenVerifier::class)->verify($jwt)
 $claims->string('sub');
 $claims->list('permissions');
 
-Jwt::verify($jwt, Jwt::audienceFor('clients'));   // pin another audience for this call
+Jwt::verify($jwt, 'app-clients');      // pin another audience for this call
+Jwt::guard('clients')->verify($jwt);   // …or the audience of a configured guard
 ```
 
 Invalid tokens throw a `RoundlyConsulting\Jwt\Jose\Exceptions\JwtException` subclass
@@ -284,29 +340,36 @@ global value:
 | `check_denylist` | `jwt.guard.check_denylist` | bool |
 | `identity` | `jwt.guard.identity` | class-string of a `ClaimsAuthenticatable` |
 
-Mint for, verify against and read a specific guard:
+Mint for, verify against and read a specific guard with `Jwt::guard($name)`:
 
 ```php
-Jwt::mintAccessToken(AccessTokenRequest::for($client->id)->audience(Jwt::audienceFor('clients')));
+$clients = Jwt::guard('clients');
 
-Jwt::audienceFor('clients');     // 'app-clients' — auth.guards.clients.audience, else jwt.audience
-Jwt::guardSettings('clients');   // JwtGuardSettings: guard, audience, scope, checkDenylist, identity, tokenVersion
-Jwt::claims('clients');          // that guard's verified claims, or null
+$clients->mintAccessToken(AccessTokenRequest::for($client->id)); // aud = 'app-clients'
+$clients->verify($jwt);      // a users token fails here (ClaimMismatch)
+$clients->audience();        // 'app-clients' — auth.guards.clients.audience, else jwt.audience
+$clients->settings();        // JwtGuardSettings: guard, audience, scope, checkDenylist, identity, tokenVersion
+$clients->claims();          // that guard's verified claims, or null — never another guard's
 ```
 
-`audienceFor()` / `guardSettings()` throw `JwtMisconfigured` for a guard that is not a `jwt` guard.
-`jwt.audience` stays required: it is the default every guard without its own `audience` uses.
+`Jwt::guard()` throws `JwtMisconfigured` for a guard that is not a `jwt` guard, and
+`mintAccessToken()` refuses a request that already names a different audience rather than
+silently re-addressing it. `jwt.audience` stays required: it is the default every guard without
+its own `audience` uses.
 
 ### Issue and send a service token
 
 ```php
 use RoundlyConsulting\Jwt\Facades\Jwt;
 
-$token = Jwt::service()->issue('target-service')->token;
+$token = Jwt::services()->issue('target-service')->token;
 
 // Or attach one to an outbound internal HTTP call:
-Jwt::caller()->request('target-service')
+Jwt::services()->request('target-service')
     ->post('https://target.internal/endpoint', [...]);
+
+// On the receiving side, behind `auth:service` (a `service-jwt` guard):
+Jwt::services()->claims()?->string('iss');   // the calling service
 ```
 
 A missing, too-short or PEM-shaped `SERVICE_JWT_SECRET` raises `ServiceAuthMisconfigured` (a
@@ -394,7 +457,51 @@ JWT dependency by allow-listing only permitted vendor roots, and assert no crypt
 re-implemented here: signing, verification, HMAC and constant-time comparison may only come from
 `crypto-for-laravel`). The fixtures are a test aid, not a runtime dependency.
 
+### Publish the verification key (JWKS)
+
+Other services that verify your tokens can fetch the public key as a standard JWK Set:
+
+```php
+Route::get('/.well-known/jwks.json', fn () => response()->json(Jwt::jwks()));
+```
+
+`jwks()` publishes the configured `jwt.public_key_path` with `alg: RS256`, `use: sig` and — when
+`JWT_KID` is set — the same `kid` the issuer writes into token headers. `Jwt::publicKey()` returns
+it as an `RsaKey`.
+
 ## Testing
+
+`Jwt::fake()` swaps the manager for a **recording** fake over an **in-memory RSA key pair** (no
+key files needed; an empty `jwt.issuer` / `jwt.audience` / service secret is filled with test
+values). Tokens are still really signed and verified, and every mint, service-token issue and
+deny is recorded — through the facade, an injected `JwtManager`, `guard()`, `services()` or
+`denylist()`:
+
+```php
+use RoundlyConsulting\Jwt\Facades\Jwt;
+use RoundlyConsulting\Jwt\Jose\Claims;
+
+$fake = Jwt::fake();
+
+// Authenticate a jwt guard for the rest of the test — no hand-built token:
+$fake->actingAs(['sub' => (string) $user->id, 'permissions' => ['posts.edit']], 'api');
+$this->getJson('/me')->assertOk();
+
+// … exercise your code …
+
+$fake->assertMinted(fn (Claims $claims): bool => $claims->string('sub') === '42');
+$fake->assertServiceTokenIssued('billing');
+$fake->assertDenied($issued->jti);
+
+$fake->assertNothingMinted();          // …and assertNothingIssuedToServices(), assertNothingDenied()
+```
+
+`actingAs()` mints a real token for the guard's audience and scope (not recorded as a mint) and
+sends it as the bearer of every later request that has no `Authorization` header of its own. With
+an Eloquent provider, `sub` must be a real user's key; a guard with `token_version` needs a
+matching `tv`. `$fake->minted()`, `serviceTokens()` and `denied()` return what was recorded.
+
+Run the package's own suite with:
 
 ```bash
 composer test
