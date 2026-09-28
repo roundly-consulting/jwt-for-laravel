@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Jwt;
 use Closure;
 use Illuminate\Auth\AuthManager;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Contracts\Auth\Factory as AuthFactory;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Foundation\Application;
@@ -19,6 +20,7 @@ use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
 use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
 use RoundlyConsulting\Jwt\Jose\Decoder;
 use RoundlyConsulting\Jwt\Jose\Encoder;
+use RoundlyConsulting\Jwt\Jose\Exceptions\ClaimMismatch;
 use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenIssuer;
 use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenVerifier;
 use RoundlyConsulting\Jwt\ServiceTokens\NativeServiceTokenService;
@@ -241,14 +243,42 @@ final class JwtServiceProvider extends PackageServiceProvider
             return;
         }
 
+        $app = $this->app;
+
         // Return null (not false) on a miss so other gate checks still run.
-        Gate::before(static function (?Authenticatable $user, string $ability): ?bool {
-            if ($user instanceof ChecksPermissions && $user->hasPermission($ability)) {
-                return true;
+        Gate::before(static function (?Authenticatable $user, string $ability) use ($app): ?bool {
+            if ($user instanceof ChecksPermissions) {
+                return $user->hasPermission($ability) ? true : null;
             }
 
-            return null;
+            return $user !== null && self::tokenPermits($app, $user, $ability) ? true : null;
         });
+    }
+
+    /**
+     * Provider mode: an Eloquent user carries no permissions of its own, so read
+     * the `permissions` claim of the token that authenticated it on the request's
+     * active guard (the one `auth:<guard>` selected). Only for that exact user
+     * instance — never another model loaded for the same key — and a mistyped
+     * claim grants nothing.
+     */
+    private static function tokenPermits(Application $app, Authenticatable $user, string $ability): bool
+    {
+        $guard = $app->make(AuthFactory::class)->guard();
+
+        if (! $guard instanceof JwtGuard || $guard->user() !== $user) {
+            return false;
+        }
+
+        $claims = $guard->payload();
+
+        try {
+            return $claims !== null
+                && $claims->has('permissions')
+                && in_array($ability, $claims->list('permissions'), true);
+        } catch (ClaimMismatch) {
+            return false;
+        }
     }
 
     private function dispatcher(Application $app): ?Dispatcher
