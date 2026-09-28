@@ -64,3 +64,7 @@ it('grants nothing from a mistyped permissions claim', function (): void {
 
     $this->withToken($token)->getJson('/abilities')->assertOk()->assertJson(['edit' => false]);
 });
+
+it('grants nothing when the active guard is not a jwt guard', function (): void {
+    expect(Gate::forUser($this->user)->allows('posts.edit'))->toBeFalse();
+});
