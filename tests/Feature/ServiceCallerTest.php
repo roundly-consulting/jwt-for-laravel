@@ -5,8 +5,8 @@ declare(strict_types=1);
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
+use RoundlyConsulting\Jwt\Facades\Jwt;
 use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenIssuer;
-use RoundlyConsulting\Jwt\ServiceTokens\ServiceCaller;
 use RoundlyConsulting\Jwt\UserTokens\IssuedToken;
 
 function fakeIssuer(): ServiceTokenIssuer
@@ -29,18 +29,20 @@ function fakeIssuer(): ServiceTokenIssuer
 
 it('attaches a fresh service token to a new request', function (): void {
     Http::fake();
-    $caller = new ServiceCaller(fakeIssuer());
+    $issuer = fakeIssuer();
+    app()->instance(ServiceTokenIssuer::class, $issuer);
 
-    $caller->request('billing')->get('https://internal.test/ping');
+    Jwt::services()->request('billing')->get('https://internal.test/ping');
 
     Http::assertSent(fn ($request) => $request->hasHeader('Authorization', 'Bearer service.token.value'));
+    expect($issuer->lastAudience)->toBe('billing');
 });
 
 it('authenticates an existing pending request', function (): void {
     Http::fake();
-    $caller = new ServiceCaller(fakeIssuer());
+    app()->instance(ServiceTokenIssuer::class, fakeIssuer());
 
-    $request = $caller->authenticate(Http::baseUrl('https://internal.test'));
+    $request = Jwt::services()->authenticate(Http::baseUrl('https://internal.test'));
 
     expect($request)->toBeInstanceOf(PendingRequest::class);
 

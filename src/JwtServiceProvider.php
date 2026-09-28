@@ -67,6 +67,7 @@ final class JwtServiceProvider extends PackageServiceProvider
         $this->app->singleton(KeyRepository::class, fn (): KeyRepository => new KeyRepository(
             $this->resolvedKeyPath(config('jwt.private_key_path')),
             $this->resolvedKeyPath(config('jwt.public_key_path')),
+            $this->nullableString(config('jwt.kid')),
         ));
 
         $this->app->singleton(UserTokenIssuer::class, fn (Application $app): NativeUserTokenIssuer => new NativeUserTokenIssuer(
@@ -173,8 +174,8 @@ final class JwtServiceProvider extends PackageServiceProvider
         // `$app`, config and imported class names inline.
         Auth::extend('jwt', static function (Application $app, string $name, array $config): JwtGuard {
             // One resolution path for every per-guard option (and its global
-            // fallback) — the same one Jwt::guardSettings() hands consumers.
-            $settings = $app->make(JwtManager::class)->guardSettings($name);
+            // fallback) — the same one Jwt::guard($name)->settings() hands consumers.
+            $settings = $app->make(JwtManager::class)->guard($name)->settings();
 
             $provider = null;
 

@@ -80,7 +80,8 @@ final readonly class AccessTokenRequest
 
     /**
      * Mint for this audience instead of the configured `jwt.audience` — e.g.
-     * `Jwt::audienceFor('clients')` for a second guard.
+     * `Jwt::guard('clients')->audience()` for a second guard (or mint through
+     * `Jwt::guard('clients')->mintAccessToken()`, which sets it for you).
      */
     public function audience(string $audience): self
     {

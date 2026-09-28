@@ -6,39 +6,48 @@ namespace RoundlyConsulting\Jwt;
 
 use Carbon\CarbonImmutable;
 use Closure;
-use Illuminate\Contracts\Auth\Factory as AuthFactory;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
+use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
 use RoundlyConsulting\Jwt\Events\TokenVerificationFailed;
 use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
+use RoundlyConsulting\Jwt\Facades\Jwt;
 use RoundlyConsulting\Jwt\Jose\Claims;
 use RoundlyConsulting\Jwt\Jose\Exceptions\ClaimMismatch;
 use RoundlyConsulting\Jwt\Jose\Exceptions\JwtException;
-use RoundlyConsulting\Jwt\ServiceTokens\NativeServiceTokenService;
-use RoundlyConsulting\Jwt\ServiceTokens\ServiceCaller;
+use RoundlyConsulting\Jwt\Jose\Exceptions\KeyLoadFailed;
+use RoundlyConsulting\Jwt\ServiceTokens\Services;
+use RoundlyConsulting\Jwt\Support\KeyRepository;
+use RoundlyConsulting\Jwt\Testing\JwtFake;
 use RoundlyConsulting\Jwt\UserTokens\AccessTokenRequest;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\ClaimsAuthenticatable;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenIssuer;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
+use RoundlyConsulting\Jwt\UserTokens\GuardTokens;
 use RoundlyConsulting\Jwt\UserTokens\IssuedToken;
-use RoundlyConsulting\Jwt\UserTokens\JwtGuard;
 use RoundlyConsulting\Jwt\UserTokens\JwtGuardSettings;
 use RoundlyConsulting\Jwt\UserTokens\Scope;
 use RoundlyConsulting\Jwt\UserTokens\TokenUser;
 
 /**
- * The one obvious entry point behind the `Jwt` facade.
+ * The one obvious entry point behind the {@see Jwt} facade — inject it for the
+ * facade-free form.
  *
  * A thin coordinator: every method delegates to a contract resolved lazily from
  * the container, so a verify-only app (no private key) can still resolve the
  * manager, and host overrides of any contract are always honoured. No token
- * logic lives here.
+ * logic lives here. Sub-areas hang off it: {@see guard()} (one `jwt` guard's
+ * audience and claims), {@see Services()} (HS256 service tokens) and
+ * {@see Denylist()}.
+ *
+ * Not final: {@see JwtFake} extends it, so code that injects the manager gets
+ * the fake under `Jwt::fake()`.
  */
-final class JwtManager
+class JwtManager
 {
-    public function __construct(private readonly Container $container) {}
+    public function __construct(protected readonly Container $container) {}
 
     public function mintAccessToken(AccessTokenRequest $request): IssuedToken
     {
@@ -71,8 +80,9 @@ final class JwtManager
     /**
      * Verify an RS256 user token, dispatching {@see TokenVerificationFailed} on
      * failure. This is the explicit verify path; the guard's silent per-request
-     * resolution does not emit the event. `$audience` pins a specific audience
-     * (e.g. `audienceFor('clients')`); null keeps the configured `jwt.audience`.
+     * resolution does not emit the event. `$audience` pins a specific audience;
+     * null keeps the configured `jwt.audience`. To verify for a guard's audience
+     * use `guard($name)->verify($jwt)`.
      *
      * @throws JwtException
      */
@@ -87,14 +97,24 @@ final class JwtManager
         }
     }
 
-    public function service(): NativeServiceTokenService
+    /**
+     * One `jwt` guard: mint and verify for its audience, read its settings and the
+     * current request's claims on it.
+     *
+     * @throws JwtMisconfigured when the guard is not a `jwt` guard.
+     */
+    public function guard(string $name): GuardTokens
     {
-        return $this->container->make(NativeServiceTokenService::class);
+        return new GuardTokens($this, $this->container, $this->resolveGuardSettings($name, $this->container->make(ConfigRepository::class)));
     }
 
-    public function caller(): ServiceCaller
+    /**
+     * HS256 machine-to-machine service tokens: issue, verify, attach to an
+     * outbound request, and read the current request's calling service.
+     */
+    public function services(): Services
     {
-        return $this->container->make(ServiceCaller::class);
+        return new Services($this->container);
     }
 
     public function denylist(): Denylist
@@ -124,56 +144,33 @@ final class JwtManager
     }
 
     /**
-     * The verified claims of the current request, or null when unauthenticated.
+     * The RSA key user tokens are verified against — the configured
+     * `jwt.public_key_path` — for hosts that publish it to other verifiers.
      *
-     * With no guard, the first `jwt` guard that has a user wins; with a guard
-     * name, exactly that guard is asked (null when it is not a `jwt` guard or
-     * has no user). Resolved through the auth manager's per-request guard(s) —
-     * never static state — so long-lived workers (Octane, queues) can't leak
-     * one request's claims into the next.
+     * @throws KeyLoadFailed when no usable public key is configured.
      */
-    public function claims(?string $guard = null): ?Claims
+    public function publicKey(): RsaKey
     {
-        $jwtGuards = $this->jwtGuards($this->container->make(ConfigRepository::class));
-
-        foreach ($guard === null ? array_keys($jwtGuards) : [$guard] as $name) {
-            if (! array_key_exists($name, $jwtGuards)) {
-                continue;
-            }
-
-            $instance = $this->container->make(AuthFactory::class)->guard($name);
-
-            if ($instance instanceof JwtGuard && $instance->user() !== null) {
-                return $instance->payload();
-            }
-        }
-
-        return null;
+        return $this->keys()->publicKey();
     }
 
     /**
-     * The audience tokens for this guard are minted for and verified against:
-     * `auth.guards.<guard>.audience` when set, else `jwt.audience`.
+     * The RFC 7517 JWK Set publishing {@see publicKey()} (`kty`, `n`, `e`, plus
+     * `alg: RS256`, `use: sig` and the configured `jwt.kid`), ready to serve as
+     * `/.well-known/jwks.json`.
      *
-     * @throws JwtMisconfigured when the guard is not a `jwt` guard.
+     * @return array{keys: list<array<string, string>>}
+     *
+     * @throws KeyLoadFailed when no usable public key is configured.
      */
-    public function audienceFor(string $guard): string
+    public function jwks(): array
     {
-        return $this->guardSettings($guard)->audience;
+        return $this->keys()->jwks();
     }
 
-    /**
-     * The effective options of a `jwt` guard — each `auth.guards.<guard>` key
-     * (`audience`, `scope`, `check_denylist`, `identity`, `token_version`)
-     * falling back to its global `jwt.*` counterpart. The `jwt` guard driver is
-     * built from exactly this, so what a consumer reads here is what the guard
-     * enforces.
-     *
-     * @throws JwtMisconfigured when the guard is not a `jwt` guard.
-     */
-    public function guardSettings(string $guard): JwtGuardSettings
+    private function keys(): KeyRepository
     {
-        return $this->resolveGuardSettings($guard, $this->container->make(ConfigRepository::class));
+        return $this->container->make(KeyRepository::class);
     }
 
     private function issuer(): UserTokenIssuer
@@ -186,6 +183,14 @@ final class JwtManager
         return $this->container->make(UserTokenVerifier::class);
     }
 
+    /**
+     * The effective options of a `jwt` guard — each `auth.guards.<guard>` key
+     * (`audience`, `scope`, `check_denylist`, `identity`, `token_version`)
+     * falling back to its global `jwt.*` counterpart. The `jwt` guard driver is
+     * built from exactly this, so what a consumer reads is what the guard enforces.
+     *
+     * @throws JwtMisconfigured when the guard is not a `jwt` guard.
+     */
     private function resolveGuardSettings(string $guard, ConfigRepository $config): JwtGuardSettings
     {
         $options = $this->jwtGuards($config)[$guard] ?? throw JwtMisconfigured::notAJwtGuard($guard);

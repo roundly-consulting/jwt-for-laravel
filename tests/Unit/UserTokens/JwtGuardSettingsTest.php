@@ -33,7 +33,7 @@ function settingsFor(array $options): JwtGuardSettings
 {
     config(['auth.guards.x' => ['driver' => 'jwt', ...$options]]);
 
-    return Jwt::guardSettings('x');
+    return Jwt::guard('x')->settings();
 }
 
 it('honours a per-guard option', function (string $key, mixed $value, string $property, mixed $expected): void {
@@ -104,14 +104,14 @@ it('builds the guard from the very same settings', function (): void {
 
     expect($users)->toBeInstanceOf(JwtGuard::class)
         ->and($clients)->toBeInstanceOf(JwtGuard::class)
-        ->and($users->audience())->toBe(Jwt::guardSettings('users')->audience)->toBe('web')
-        ->and($clients->audience())->toBe(Jwt::guardSettings('clients')->audience)->toBe('clients');
+        ->and($users->audience())->toBe(Jwt::guard('users')->settings()->audience)->toBe('web')
+        ->and($clients->audience())->toBe(Jwt::guard('clients')->settings()->audience)->toBe('clients');
 });
 
 it('refuses a guard that is not a jwt guard', function (array $guards, string $name): void {
     config(['auth.guards' => $guards]);
 
-    Jwt::guardSettings($name);
+    Jwt::guard($name)->settings();
 })->with([
     'session guard' => [['web' => ['driver' => 'session', 'provider' => 'users']], 'web'],
     'unknown guard' => [[], 'missing'],

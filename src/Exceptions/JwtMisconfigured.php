@@ -40,4 +40,14 @@ final class JwtMisconfigured extends RuntimeException
     {
         return new self("The token_version of jwt guard [{$guard}] must be an invokable class-string or a closure.");
     }
+
+    /**
+     * An access-token request addressed to one audience, minted through a guard
+     * that serves another. Re-addressing it silently would hand the caller a token
+     * for an audience it never asked for.
+     */
+    public static function conflictingAudience(string $guard, string $requested, string $expected): self
+    {
+        return new self("The access-token request names audience [{$requested}], but jwt guard [{$guard}] mints for [{$expected}].");
+    }
 }

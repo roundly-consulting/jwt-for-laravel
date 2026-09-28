@@ -12,7 +12,7 @@ use RoundlyConsulting\Jwt\UserTokens\Contracts\ClaimsAuthenticatable;
  * The effective options of one `jwt` guard: its own `auth.guards.<name>` keys,
  * each falling back to the global `jwt.*` value.
  *
- * Resolved in exactly one place ({@see JwtManager::guardSettings()}) and used
+ * Resolved in exactly one place ({@see JwtManager::guard()}) and used
  * both to build the guard and by anything that has to reason about it, so the
  * guard and its consumers can never disagree about the fallback chain.
  */

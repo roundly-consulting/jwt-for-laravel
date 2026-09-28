@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Jwt\Support;
 
 use RoundlyConsulting\Crypto\Exceptions\CryptoException;
+use RoundlyConsulting\Crypto\Jose\Jwk;
+use RoundlyConsulting\Crypto\Signature\Algorithm;
 use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
 use RoundlyConsulting\Jwt\Jose\Exceptions\KeyLoadFailed;
 
@@ -24,10 +26,62 @@ final class KeyRepository
 
     private ?RsaKey $publicKey = null;
 
+    /**
+     * @param  string|null  $kid  the `jwt.kid` minted into token headers, published in {@see jwks()}
+     */
     public function __construct(
         private readonly ?string $privateKeyPath,
         private readonly ?string $publicKeyPath,
+        private readonly ?string $kid = null,
     ) {}
+
+    /**
+     * A repository over an already-loaded key pair, with no files behind it —
+     * what `Jwt::fake()` installs so tests mint and verify without key files. The
+     * public half is derived from the private key.
+     *
+     * @throws KeyLoadFailed when the key is not a private key.
+     */
+    public static function inMemory(RsaKey $privateKey, ?string $kid = null): self
+    {
+        if (! $privateKey->isPrivate) {
+            throw KeyLoadFailed::privateKeyNotConfigured();
+        }
+
+        $repository = new self(null, null, $kid);
+
+        try {
+            $repository->privateKey = $privateKey;
+            $repository->publicKey = RsaKey::public($privateKey->publicPem());
+        } catch (CryptoException $e) {
+            throw KeyLoadFailed::unusable('public', $e);
+        }
+
+        return $repository;
+    }
+
+    /**
+     * The RFC 7517 JWK Set publishing the public key: `kty`, `n`, `e`, `alg`
+     * (RS256), `use` (sig) and — when configured — the `kid` minted into token
+     * headers, so a verifier can match a token to its key.
+     *
+     * @return array{keys: list<array<string, string>>}
+     *
+     * @throws KeyLoadFailed
+     */
+    public function jwks(): array
+    {
+        try {
+            $jwk = Jwk::fromPublicKey($this->publicKey())
+                ->withAlg(Algorithm::RS256)
+                ->withUse('sig')
+                ->withKid($this->kid === '' ? null : $this->kid);
+        } catch (CryptoException $e) {
+            throw KeyLoadFailed::unusable('public', $e);
+        }
+
+        return ['keys' => [$jwk->toArray()]];
+    }
 
     /**
      * @throws KeyLoadFailed

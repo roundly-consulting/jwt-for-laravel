@@ -11,8 +11,7 @@ use RoundlyConsulting\Jwt\Jose\Claims;
 use RoundlyConsulting\Jwt\Jose\Exceptions\ClaimMismatch;
 use RoundlyConsulting\Jwt\Jose\Exceptions\InvalidSignature;
 use RoundlyConsulting\Jwt\Jose\Exceptions\JwtException;
-use RoundlyConsulting\Jwt\ServiceTokens\NativeServiceTokenService;
-use RoundlyConsulting\Jwt\ServiceTokens\ServiceCaller;
+use RoundlyConsulting\Jwt\ServiceTokens\Services;
 use RoundlyConsulting\Jwt\UserTokens\AccessTokenRequest;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
 use RoundlyConsulting\Jwt\UserTokens\Scope;
@@ -34,7 +33,7 @@ beforeEach(function (): void {
     ]);
 
     Route::middleware('auth:api')->get('/whoami', fn () => response()->json([
-        'sub' => Jwt::claims()?->string('sub'),
+        'sub' => Jwt::guard('api')->claims()?->string('sub'),
     ]));
 });
 
@@ -82,10 +81,11 @@ it('mints the same claims for a Scope case and its string value', function (): v
     expect($fromEnum)->toBe($fromString);
 });
 
-it('exposes the bound service token service and caller', function (): void {
-    expect(Jwt::service())->toBeInstanceOf(NativeServiceTokenService::class)
-        ->and(Jwt::service())->toBe(app(NativeServiceTokenService::class))
-        ->and(Jwt::caller())->toBeInstanceOf(ServiceCaller::class)
+it('exposes the service-token accessor and the bound denylist', function (): void {
+    $issued = Jwt::services()->issue('web');
+
+    expect(Jwt::services())->toBeInstanceOf(Services::class)
+        ->and(Jwt::services()->verify($issued->token)->string('aud'))->toBe('web')
         ->and(Jwt::denylist())->toBe(app(Denylist::class));
 });
 
@@ -109,7 +109,7 @@ it('denylists a token from its verified claims', function (): void {
 });
 
 it('reads the current request claims, null before authentication', function (): void {
-    expect(Jwt::claims())->toBeNull();
+    expect(Jwt::guard('api')->claims())->toBeNull();
 
     $token = Jwt::mintAccessToken(AccessTokenRequest::for('user-9'))->token;
 
@@ -149,21 +149,21 @@ it('resolves a guard audience, falling back to the configured one', function ():
         'auth.guards.blank' => ['driver' => 'jwt', 'audience' => ''],
     ]);
 
-    expect(Jwt::audienceFor('users'))->toBe('vetapp-users')
-        ->and(Jwt::audienceFor('api'))->toBe('web')
-        ->and(Jwt::audienceFor('blank'))->toBe('web');
+    expect(Jwt::guard('users')->audience())->toBe('vetapp-users')
+        ->and(Jwt::guard('api')->audience())->toBe('web')
+        ->and(Jwt::guard('blank')->audience())->toBe('web');
 });
 
-it('refuses the audience of a guard that is not a jwt guard', function (): void {
+it('refuses a guard that is not a jwt guard', function (): void {
     config(['auth.guards.web' => ['driver' => 'session', 'provider' => 'users']]);
 
-    Jwt::audienceFor('web');
+    Jwt::guard('web');
 })->throws(JwtMisconfigured::class);
 
 it('exposes the resolved settings of a guard', function (): void {
     config(['auth.guards.clients' => ['driver' => 'jwt', 'audience' => 'vetapp-clients', 'scope' => 'partner']]);
 
-    $settings = Jwt::guardSettings('clients');
+    $settings = Jwt::guard('clients')->settings();
 
     expect($settings->guard)->toBe('clients')
         ->and($settings->audience)->toBe('vetapp-clients')
@@ -181,23 +181,19 @@ it('reads the claims of one named guard', function (): void {
     config(['auth.guards.clients' => ['driver' => 'jwt', 'audience' => 'vetapp-clients']]);
 
     Route::middleware('auth:clients')->get('/clients/whoami', fn () => response()->json([
-        'clients' => Jwt::claims('clients')?->string('sub'),
-        'api' => Jwt::claims('api')?->string('sub'),
-        'web' => Jwt::claims('web')?->string('sub'),
-        'any' => Jwt::claims()?->string('sub'),
+        'clients' => Jwt::guard('clients')->claims()?->string('sub'),
+        'api' => Jwt::guard('api')->claims()?->string('sub'),
     ]));
 
-    $token = Jwt::mintAccessToken(AccessTokenRequest::for('client-7')->audience(Jwt::audienceFor('clients')))->token;
+    $token = Jwt::guard('clients')->mintAccessToken(AccessTokenRequest::for('client-7'))->token;
 
     $this->withToken($token)->getJson('/clients/whoami')->assertOk()->assertExactJson([
         'clients' => 'client-7',
         'api' => null,
-        'web' => null,
-        'any' => 'client-7',
     ]);
 });
 
-it('reads no claims for a named guard before authentication', function (): void {
-    expect(Jwt::claims('api'))->toBeNull()
-        ->and(Jwt::claims('missing'))->toBeNull();
+it('reads no claims for a guard before authentication, and refuses an unknown guard', function (): void {
+    expect(Jwt::guard('api')->claims())->toBeNull()
+        ->and(fn () => Jwt::guard('missing'))->toThrow(JwtMisconfigured::class);
 });

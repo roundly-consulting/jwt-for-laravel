@@ -72,3 +72,22 @@ it('rejects a non-RSA key', function (string $file, string $method): void {
     'private' => ['ec-private.pem', 'privateKey'],
     'public' => ['ec-public.pem', 'publicKey'],
 ])->throws(KeyLoadFailed::class, 'not an RSA key');
+
+it('serves an in-memory key pair with no files behind it', function (): void {
+    $repository = KeyRepository::inMemory(rsaPrivateKey(), 'kid-1');
+
+    expect($repository->privateKey())->toBe($repository->privateKey())
+        ->and($repository->publicKey()->publicPem())->toBe(rsaPublicKey()->publicPem())
+        ->and($repository->jwks()['keys'][0]['kid'])->toBe('kid-1');
+});
+
+it('publishes the public key as a JWK set', function (): void {
+    $jwks = (new KeyRepository(null, fixturesDir().'/keys/jwt-public.pem'))->jwks();
+
+    expect($jwks['keys'][0])->toHaveKeys(['kty', 'n', 'e', 'alg', 'use'])
+        ->and($jwks['keys'][0])->not->toHaveKey('kid');
+});
+
+it('refuses to derive an in-memory public key from a public-only key', function (): void {
+    KeyRepository::inMemory(RsaKey::public(publicKeyPem()));
+})->throws(KeyLoadFailed::class);

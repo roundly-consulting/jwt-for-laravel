@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\Jwt\Jose\Exceptions\JwtException;
+use RoundlyConsulting\Jwt\JwtManager;
+use RoundlyConsulting\Jwt\ServiceTokens\Services;
 use RoundlyConsulting\Jwt\UserTokens\TokenUser;
 use RoundlyConsulting\Testing\Arch\ArchPresets;
 
@@ -10,11 +12,15 @@ use RoundlyConsulting\Testing\Arch\ArchPresets;
 
 ArchPresets::strictTypes('RoundlyConsulting\Jwt');
 
-// Two intentional extension points are exempt: TokenUser, which
-// `jwt.guard.identity` invites a host to subclass (pinned by the preset below
-// instead), and JwtException, the base every JOSE error extends so a host can
-// catch token failures uniformly.
-ArchPresets::finalByDefault('RoundlyConsulting\Jwt', [TokenUser::class, JwtException::class]);
+// Intentional extension points are exempt: TokenUser, which `jwt.guard.identity`
+// invites a host to subclass (pinned by the preset below instead), JwtException, the
+// base every JOSE error extends so a host can catch token failures uniformly, and
+// JwtManager + its Services sub-accessor, which the shipped JwtFake /
+// RecordingServices extend — `final` would be a fatal under Jwt::fake().
+ArchPresets::finalByDefault('RoundlyConsulting\Jwt', [TokenUser::class, JwtException::class, JwtManager::class, Services::class]);
+
+// `modelsGoThroughTheFacade` is deliberately NOT adopted: jwt has no `Models`,
+// `Concerns` or `Traits` namespace (the preset fails loudly on a package with none).
 
 ArchPresets::swappableModelsAreNotFinal([TokenUser::class => 'jwt.guard.identity']);
 
@@ -50,7 +56,11 @@ arch('src only uses allowed vendor roots')
         'Illuminate',
         'Carbon',
         'config',
-    ]);
+    ])
+    // The recording fake's assertions (src/Testing, only ever loaded by a host test
+    // suite). Pest's arch layer cannot match a PHPUnit class as an allowed root, so it
+    // is named here, exactly — nothing else from PHPUnit is permitted.
+    ->ignoring('PHPUnit\Framework\Assert');
 
 arch('test support only uses allowed vendor roots')
     ->expect('RoundlyConsulting\Jwt\Tests')

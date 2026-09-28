@@ -49,7 +49,7 @@ beforeEach(function (): void {
     Route::middleware('auth:clients')->get('/clients/me', fn () => response()->json([
         'type' => auth()->user()::class,
         'id' => auth()->id(),
-        'sub' => Jwt::claims('clients')?->string('sub'),
+        'sub' => Jwt::guard('clients')->claims()?->string('sub'),
     ]));
 });
 
@@ -67,7 +67,7 @@ function guards(string $usersAudience, string $clientsAudience): void
 
 function accessTokenFor(string $guard): string
 {
-    return Jwt::mintAccessToken(AccessTokenRequest::for(1)->audience(Jwt::audienceFor($guard)))->token;
+    return Jwt::mintAccessToken(AccessTokenRequest::for(1)->audience(Jwt::guard($guard)->audience()))->token;
 }
 
 it('shares a primary key between the two account tables', function (): void {
