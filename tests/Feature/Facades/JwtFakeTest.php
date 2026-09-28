@@ -3,9 +3,12 @@
 declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\ExpectationFailedException;
+use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
+use RoundlyConsulting\Jwt\Events\TokenDenied;
 use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
 use RoundlyConsulting\Jwt\Facades\Jwt;
 use RoundlyConsulting\Jwt\Jose\Claims;
@@ -13,7 +16,9 @@ use RoundlyConsulting\Jwt\JwtManager;
 use RoundlyConsulting\Jwt\Testing\JwtFake;
 use RoundlyConsulting\Jwt\Testing\RecordedToken;
 use RoundlyConsulting\Jwt\UserTokens\AccessTokenRequest;
+use RoundlyConsulting\Jwt\UserTokens\IssuedToken;
 use RoundlyConsulting\Jwt\UserTokens\Scope;
+use RoundlyConsulting\Jwt\UserTokens\TokenUser;
 
 beforeEach(function (): void {
     // Deliberately no key paths, issuer, audience or service secret: the fake
@@ -204,4 +209,61 @@ it('honours a scope passed to actingAs', function (): void {
 
 it('is a JwtFake', function (): void {
     expect(Jwt::fake())->toBeInstanceOf(JwtFake::class);
+});
+
+/*
+ * The README's Testing example, under the SHIPPED config: `jwt.denylist.store`
+ * defaults to `redis`, and the guard checks the denylist on every request. The
+ * fake used to leave that real store in place, so the example 500'd with a Redis
+ * connection error on any machine without Redis.
+ */
+it('runs the README actingAs example without a cache server', function (): void {
+    config(['jwt.denylist.store' => 'redis', 'database.redis.default.port' => 1]);
+    Event::fake([TokenDenied::class]);
+
+    $fake = Jwt::fake();
+    Route::middleware('auth:api')->get('/me', fn () => response()->json(['sub' => Jwt::guard('api')->claims()?->string('sub')]));
+
+    $issued = $fake->actingAs(['sub' => '42', 'permissions' => ['posts.edit']], 'api');
+    $this->getJson('/me')->assertOk()->assertExactJson(['sub' => '42']);
+
+    Jwt::logout($issued);
+
+    $this->getJson('/me')->assertUnauthorized();
+    $fake->assertDenied($issued->jti);
+    Event::assertDispatched(TokenDenied::class, fn (TokenDenied $event): bool => $event->jti === $issued->jti);
+    expect(Jwt::denylist()->has($issued->jti))->toBeTrue();
+});
+
+it('leaves a host\'s own denylist binding alone', function (): void {
+    $own = new class implements Denylist
+    {
+        public function has(string $jti): bool
+        {
+            return $jti === 'host-denied';
+        }
+
+        public function deny(string $jti, CarbonImmutable $until): void {}
+
+        public function denyToken(IssuedToken $token): void {}
+    };
+
+    app()->instance(Denylist::class, $own);
+
+    Jwt::fake();
+
+    expect(app(Denylist::class))->toBe($own)
+        ->and(Jwt::denylist()->has('host-denied'))->toBeTrue();
+});
+
+it('replaces a user set through Laravel actingAs with a later fake actingAs', function (): void {
+    $fake = Jwt::fake();
+    Route::middleware('auth:api')->get('/me', fn () => response()->json(['sub' => auth()->id()]));
+
+    $this->actingAs(TokenUser::fromClaims(new Claims(['sub' => 'set-by-laravel'])), 'api');
+    $this->getJson('/me')->assertOk()->assertExactJson(['sub' => 'set-by-laravel']);
+
+    $fake->actingAs(['sub' => 'set-by-fake'], 'api');
+
+    $this->getJson('/me')->assertOk()->assertExactJson(['sub' => 'set-by-fake']);
 });

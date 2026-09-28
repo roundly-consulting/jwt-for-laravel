@@ -10,12 +10,14 @@ use Illuminate\Container\Container as IlluminateContainer;
 use Illuminate\Contracts\Auth\Factory as AuthFactory;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
 use PHPUnit\Framework\Assert;
 use RoundlyConsulting\Crypto\Codec\Base64Url;
 use RoundlyConsulting\Crypto\Random\Token;
 use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
+use RoundlyConsulting\Jwt\Denylist\CacheDenylist;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
 use RoundlyConsulting\Jwt\Jose\Claims;
 use RoundlyConsulting\Jwt\JwtManager;
@@ -26,16 +28,18 @@ use RoundlyConsulting\Jwt\UserTokens\AccessTokenRequest;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenIssuer;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
 use RoundlyConsulting\Jwt\UserTokens\IssuedToken;
+use RoundlyConsulting\Jwt\UserTokens\JwtGuard;
 use RoundlyConsulting\Jwt\UserTokens\Scope;
 
 /**
  * A recording, still-performing {@see JwtManager}, installed by `Jwt::fake()`.
  *
  * On construction it swaps the configured RSA keys for an **in-memory** key pair
- * (generated once per process), fills an empty `jwt.issuer` / `jwt.audience` /
- * service secret with test values, and drops every already-built issuer, verifier
- * and guard so they pick the fake keys up — tests mint and verify without key
- * files. Tokens are then really signed and verified, and every mint, service-token
+ * (generated once per process), moves the package's cache denylist onto an
+ * **in-memory** store (a host's own `Denylist` binding is left alone), fills an
+ * empty `jwt.issuer` / `jwt.audience` / service secret with test values, and
+ * drops every already-built issuer, verifier and guard so they pick the fakes
+ * up — tests mint and verify without key files or a cache server. Tokens are then really signed and verified, and every mint, service-token
  * issue and deny is recorded for the `assert*()` helpers, whether it came through
  * the facade, an injected manager, `guard()`, `services()` or `denylist()`.
  *
@@ -142,7 +146,17 @@ final class JwtFake extends JwtManager
 
         $this->acting = $token->token;
         $this->attachActingToken();
-        $this->container->make(AuthFactory::class)->shouldUse($guard);
+
+        $auth = $this->container->make(AuthFactory::class);
+        $auth->shouldUse($guard);
+
+        // A user set earlier (Laravel's `actingAs($user, $guard)`) would otherwise
+        // outrank the bearer this call attaches.
+        $instance = $auth->guard($guard);
+
+        if ($instance instanceof JwtGuard) {
+            $instance->forgetUser();
+        }
 
         return $token;
     }
@@ -302,6 +316,8 @@ final class JwtFake extends JwtManager
             $this->filled($kid) && is_string($kid) ? $kid : null,
         ));
 
+        $this->useInMemoryDenylist();
+
         if ($this->container instanceof IlluminateContainer) {
             foreach ([UserTokenIssuer::class, UserTokenVerifier::class, NativeServiceTokenService::class] as $abstract) {
                 $this->container->forgetInstance($abstract);
@@ -310,6 +326,34 @@ final class JwtFake extends JwtManager
 
         // Guards built before the swap hold the old verifier.
         $this->container->make(AuthManager::class)->forgetGuards();
+    }
+
+    /**
+     * The guard checks the denylist on every request and `jwt.denylist.store`
+     * defaults to `redis`, so the package's cache denylist moves onto a private
+     * in-memory store — same prefix, leeway and `TokenDenied` event, no server.
+     * Bound lazily, exactly like the provider's, so an `Event::fake()` made after
+     * `Jwt::fake()` still sees the event. A host's own denylist is kept.
+     */
+    private function useInMemoryDenylist(): void
+    {
+        if (! $this->container->make(Denylist::class) instanceof CacheDenylist) {
+            return;
+        }
+
+        $cache = new InMemoryCache;
+
+        $this->container->singleton(Denylist::class, static function (Container $app) use ($cache): CacheDenylist {
+            $config = $app->make(ConfigRepository::class);
+
+            return new CacheDenylist(
+                $cache,
+                null,
+                (string) $config->get('jwt.denylist.prefix'),
+                $app->bound(Dispatcher::class) ? $app->make(Dispatcher::class) : null,
+                (int) $config->get('jwt.leeway'),
+            );
+        });
     }
 
     private function attachActingToken(): void
