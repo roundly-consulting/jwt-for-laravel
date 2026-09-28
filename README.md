@@ -63,9 +63,9 @@ missing key or secret can never masquerade as a silent 401.
   — the service-provider bootstrapper. The config file, its `jwt-config` publish tag and the
   `jwt:generate-keys` command are declared through it, and it adds a `Jwt` section to
   `php artisan about` (`php artisan about --only=jwt`) reporting the algorithms, whether the signing
-  key, verification key, issuer, audience and service secret are **SET** or **MISSING**, the access
-  token TTL, and whether the denylist check and claim authorization are on. It never prints key
-  material, secrets or key paths.
+  and verification key files exist (**SET** / **MISSING**), whether the issuer, audience and
+  service secret are **SET** or **MISSING**, the access token TTL, and whether the denylist check
+  and claim authorization are on. It never prints key material, secrets or key paths.
 
 ## Installation
 
@@ -85,8 +85,13 @@ On an **issuer** app (one that mints user tokens), generate an RSA keypair:
 php artisan jwt:generate-keys
 ```
 
+With no `JWT_*` env set, it writes the private key to `storage/jwt-private.key` (mode `0600`) and
+the public key to `storage/jwt-public.pem` — exactly where the config reads them. A stock Laravel
+`.gitignore` already excludes `/storage/*.key`; if you point `JWT_PRIVATE_KEY_PATH` elsewhere, keep
+that file out of version control yourself. Relative paths resolve against the app root.
+
 On a **verify-only** app, copy the issuer's public key to the path in `JWT_PUBLIC_KEY_PATH`
-(default `storage/jwt-public.pem`) — no private key is needed.
+(default `storage/jwt-public.pem`) — no private key is needed (only minting reads it).
 
 ## Configuration
 
@@ -95,7 +100,7 @@ verification once the keys/secret are set. Every key and its backing env var:
 
 | Config key | Env var | Default | Purpose |
 |---|---|---|---|
-| `private_key_path` | `JWT_PRIVATE_KEY_PATH` | `null` | RSA private key path (issuers only) |
+| `private_key_path` | `JWT_PRIVATE_KEY_PATH` | `storage_path('jwt-private.key')` | RSA private key path — read only when minting (issuers) |
 | `public_key_path` | `JWT_PUBLIC_KEY_PATH` | `storage_path('jwt-public.pem')` | RSA public key path |
 | `issuer` | `JWT_ISSUER` | `null` | Pinned `iss` — **required**; empty throws `JwtMisconfigured` |
 | `audience` | `JWT_AUDIENCE` | `null` | Pinned `aud` — **required**; empty throws `JwtMisconfigured` |
@@ -300,9 +305,13 @@ Declare the guards in `config/auth.php` — the package provides the drivers:
 Then protect routes as usual:
 
 ```php
-Route::middleware('auth:api')->get('/me', fn () => request()->user());
+Route::middleware('auth:api')->get('/me', fn () => ['id' => auth()->id()]);
 Route::middleware('auth:service')->post('/internal/sync', SyncController::class);
 ```
+
+In claims mode `request()->user()` is a `TokenUser` — not an Eloquent model, so return the fields
+you need (`getAuthIdentifier()`, `claims()`) rather than the object itself, which Laravel cannot
+turn into a response.
 
 In provider mode, set `guard.token_version` so a bumped version invalidates old tokens. Prefer an
 invokable class — it survives `php artisan config:cache`, a closure does not. A value the guard
@@ -428,14 +437,23 @@ Event::listen(function (UserTokenIssued $event): void {
 
 ### Claim-based authorization
 
-Set `authorize_from_claims` to `true` and abilities listed in the token's `permissions` claim are
-granted through Laravel's Gate:
+Set `authorize_from_claims` to `true` (`JWT_AUTHORIZE_FROM_CLAIMS=true`) and abilities listed in
+the token's `permissions` claim are granted through a `Gate::before` hook:
 
 ```php
 if ($request->user()->can('posts.edit')) {
     // ...
 }
 ```
+
+- **Claims mode** — the user is a `TokenUser` (or any identity implementing
+  `RoundlyConsulting\Jwt\UserTokens\Contracts\ChecksPermissions`), which answers from its own
+  claims: `can()` works for that user wherever it is checked.
+- **Provider mode** — the user is your Eloquent model, so the hook reads the `permissions` claim of
+  the token that authenticated it on the request's active guard (the one `auth:<guard>` selected,
+  or `Auth::shouldUse()`). It grants only to that exact user instance: a copy of the same user
+  loaded separately (`Gate::forUser(User::find($id))`), a user set without a token
+  (`actingAs($user, 'api')`), or a mistyped `permissions` claim gets nothing from the token.
 
 The hook returns `null` (not `false`) on a miss, so your own gates and policies still run.
 
@@ -446,12 +464,14 @@ php artisan jwt:generate-keys          # writes both PEMs; refuses to overwrite
 php artisan jwt:generate-keys --force  # overwrite existing keys
 ```
 
-Generates a 2048-bit RSA keypair; the private key is written with `0600` permissions.
+Generates a 2048-bit RSA keypair at `jwt.private_key_path` / `jwt.public_key_path` (by default
+`storage/jwt-private.key` and `storage/jwt-public.pem`); the private key is written with `0600`
+permissions. It fails with a clear error if either path is set to an empty value.
 
 ## Standards-based parity
 
 The package is verification-compatible with standard JWS/JWT tokens, proven by committed static
-parity fixtures and the RFC 7515 example vectors under `tests/fixtures/` — **with zero third-party
+parity fixtures and the RFC 7515 example vectors under `tests/Fixtures/` — **with zero third-party
 JWT or crypto libraries in `composer.json`** (architecture tests keep `src/` free of any third-party
 JWT dependency by allow-listing only permitted vendor roots, and assert no crypto primitive is
 re-implemented here: signing, verification, HMAC and constant-time comparison may only come from
@@ -473,9 +493,10 @@ it as an `RsaKey`.
 
 `Jwt::fake()` swaps the manager for a **recording** fake over an **in-memory RSA key pair** (no
 key files needed; an empty `jwt.issuer` / `jwt.audience` / service secret is filled with test
-values). Tokens are still really signed and verified, and every mint, service-token issue and
-deny is recorded — through the facade, an injected `JwtManager`, `guard()`, `services()` or
-`denylist()`:
+values) and moves the package's denylist onto a private **in-memory** cache store, so no Redis (or
+whatever `jwt.denylist.store` names) is needed — a `Denylist` binding of your own is left alone.
+Tokens are still really signed and verified, and every mint, service-token issue and deny is
+recorded — through the facade, an injected `JwtManager`, `guard()`, `services()` or `denylist()`:
 
 ```php
 use RoundlyConsulting\Jwt\Facades\Jwt;
@@ -500,6 +521,19 @@ $fake->assertNothingMinted();          // …and assertNothingIssuedToServices()
 sends it as the bearer of every later request that has no `Authorization` header of its own. With
 an Eloquent provider, `sub` must be a real user's key; a guard with `token_version` needs a
 matching `tv`. `$fake->minted()`, `serviceTokens()` and `denied()` return what was recorded.
+
+Laravel's own `actingAs()` works on both guards too, with no token at all — the guard keeps the
+user you set until `Auth::guard('api')->forgetUser()`:
+
+```php
+$this->actingAs($user, 'api')->getJson('/me')->assertOk();          // Eloquent or TokenUser
+$this->actingAs($serviceIdentity, 'service')->postJson('/internal/sync')->assertOk();
+```
+
+`Jwt::guard('api')->claims()` returns a set `TokenUser`'s claims (and `Jwt::services()->claims()`
+a set `ServiceIdentity`'s); any other user set this way has none. Call `Jwt::fake()` **before**
+Laravel's `actingAs()` — the fake rebuilds the guards, dropping a user set earlier — and a later
+`$fake->actingAs()` replaces it.
 
 Run the package's own suite with:
 
