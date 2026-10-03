@@ -67,7 +67,10 @@ it('defers to the global option when the per-guard value is unset or blank', fun
     'blank audience' => ['audience', '  ', 'audience', 'web'],
     'null audience' => ['audience', null, 'audience', 'web'],
     'null scope' => ['scope', null, 'scope', 'access'],
+    'blank scope' => ['scope', ' ', 'scope', 'access'],
     'null identity' => ['identity', null, 'identity', TokenUser::class],
+    'blank identity' => ['identity', '', 'identity', TokenUser::class],
+    'blank check_denylist' => ['check_denylist', '', 'checkDenylist', true],
     'blank token_version' => ['token_version', '', 'tokenVersion', null],
 ]);
 
@@ -77,7 +80,7 @@ it('refuses an unusable per-guard value instead of deferring to the global one (
 })->with([
     'non-string audience' => ['audience', ['web']],
     'non-string scope' => ['scope', 42],
-    'blank scope' => ['scope', ' '],
+    'check_denylist typo' => ['check_denylist', 'disabled'],
     'identity not a ClaimsAuthenticatable' => ['identity', stdClass::class],
     'identity not a class' => ['identity', 'Not\\A\\Class'],
 ]);
@@ -91,11 +94,11 @@ it('refuses an unusable global scope or audience (strict config)', function (str
     'audience' => ['jwt.audience', 42],
 ]);
 
-it('reads an unset global scope as access (strict config)', function (): void {
-    config(['jwt.guard.scope' => null]);
+it('reads an unset or blank global scope as access (strict config)', function (mixed $unset): void {
+    config(['jwt.guard.scope' => $unset]);
 
     expect(settingsFor([])->scope)->toBe('access');
-});
+})->with(['null' => [null], 'blank' => [''], 'whitespace' => ['  ']]);
 
 it('refuses a typo in a per-guard check_denylist instead of deferring to the global one (strict config)', function (mixed $junk): void {
     expect(fn () => settingsFor(['check_denylist' => $junk]))
@@ -109,11 +112,13 @@ it('refuses a typo in the global check_denylist (strict config)', function (): v
         ->toThrow(JwtMisconfigured::class, 'Configuration value [jwt.guard.check_denylist] must be a boolean (true/false, 1/0, on/off or yes/no), [disabled] given.');
 });
 
-it('reads an unset check_denylist as the shipped default, on (strict config)', function (): void {
-    config(['jwt.guard.check_denylist' => null]);
+it('reads an unset or blank check_denylist as the shipped default, on (strict config)', function (mixed $unset): void {
+    // A blank JWT_CHECK_DENYLIST= is not set: it must never read as `false` and switch revocation off.
+    config(['jwt.guard.check_denylist' => $unset]);
 
-    expect(settingsFor([])->checkDenylist)->toBeTrue();
-});
+    expect(settingsFor([])->checkDenylist)->toBeTrue()
+        ->and(settingsFor(['check_denylist' => $unset])->checkDenylist)->toBeTrue();
+})->with(['null' => [null], 'blank' => [''], 'whitespace' => ['  ']]);
 
 it('normalises a global Scope case to its wire value', function (): void {
     config(['jwt.guard.scope' => Scope::EmailVerify]);

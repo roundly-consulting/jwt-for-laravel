@@ -237,15 +237,16 @@ class JwtManager
 
     /**
      * A configured scope: a {@see Scope} case normalised to its wire value, or a
-     * non-empty custom string as-is; null when unset (defer to the next level).
-     * Anything else throws — a mistyped scope must not quietly defer to another.
+     * non-empty custom string as-is; null when not set — absent, null or blank —
+     * (defer to the next level). Anything else throws — a mistyped scope must not
+     * quietly defer to another.
      *
      * @throws JwtMisconfigured
      */
     private function scope(string $key, mixed $value): ?string
     {
         return match (true) {
-            $value === null => null,
+            Settings::notSet($value) => null,
             $value instanceof Scope => $value->value,
             is_string($value) && trim($value) !== '' => $value,
             default => throw JwtMisconfigured::invalidValue($key, 'a Scope case or a non-empty string', $value),
@@ -253,22 +254,24 @@ class JwtManager
     }
 
     /**
-     * A boolean switch: null when unset (defer to the next level), a bool for an
-     * env-style spelling ("false", "0", "off" — a plain `(bool)` cast reads those as
-     * true), and a {@see JwtMisconfigured} naming the key for anything else, so a
-     * typo never quietly falls back to the global value.
+     * A boolean switch: null when not set — absent, null or blank — (defer to the
+     * next level, never a blank read as `false`), a bool for an env-style spelling
+     * ("false", "0", "off" — a plain `(bool)` cast reads those as true), and a
+     * {@see JwtMisconfigured} naming the key for anything else, so a typo never
+     * quietly falls back to the global value.
      *
      * @throws JwtMisconfigured
      */
     private function flag(string $key, mixed $value): ?bool
     {
-        return $value === null ? null : Config::for([$key => $value], JwtMisconfigured::class)->boolean($key);
+        return Settings::notSet($value) ? null : Config::for([$key => $value], JwtMisconfigured::class)->boolean($key);
     }
 
     /**
-     * A configured claims-mode identity class, or null when unset (defer to the next
-     * level). Anything that is not a {@see ClaimsAuthenticatable} class throws rather
-     * than silently becoming the packaged {@see TokenUser}.
+     * A configured claims-mode identity class, or null when not set — absent, null or
+     * blank — (defer to the next level). Anything that is not a
+     * {@see ClaimsAuthenticatable} class throws rather than silently becoming the
+     * packaged {@see TokenUser}.
      *
      * @return class-string<ClaimsAuthenticatable>|null
      *
@@ -276,7 +279,7 @@ class JwtManager
      */
     private function identityClass(string $key, mixed $value): ?string
     {
-        if ($value === null) {
+        if (Settings::notSet($value)) {
             return null;
         }
 
@@ -298,7 +301,7 @@ class JwtManager
     {
         return match (true) {
             $value instanceof Closure => $value,
-            $value === null, is_string($value) && trim($value) === '' => null,
+            Settings::notSet($value) => null,
             is_string($value) => $value,
             default => throw JwtMisconfigured::invalidTokenVersion($guard),
         };

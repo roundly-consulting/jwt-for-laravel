@@ -5,8 +5,8 @@ declare(strict_types=1);
 use RoundlyConsulting\Jwt\UserTokens\TokenUser;
 
 return [
-    // Every value is read strictly: an absent key takes its default, but a present
-    // value of the wrong shape (a TTL of 'five', a non-list `issuers`, a malformed
+    // Every value is read strictly: a key that is not set (absent, null or blank —
+    // `KEY=`) takes its default, but a present value of the wrong shape (a TTL of 'five', a non-list `issuers`, a malformed
     // `secrets` pair, an `identity` that is not a ClaimsAuthenticatable) throws
     // JwtMisconfigured naming the key instead of silently falling back.
 
@@ -16,8 +16,8 @@ return [
     // `.gitignore` already excludes `/storage/*.key`.
     'private_key_path' => env('JWT_PRIVATE_KEY_PATH', storage_path('jwt-private.key')),
     'public_key_path' => env('JWT_PUBLIC_KEY_PATH', storage_path('jwt-public.pem')),
-    'issuer' => env('JWT_ISSUER'),                    // required: minting/verifying throws when empty
-    'audience' => env('JWT_AUDIENCE'),                // required: minting/verifying throws when empty
+    'issuer' => env('JWT_ISSUER'),                    // required: minting/verifying throws when not set (null/blank)
+    'audience' => env('JWT_AUDIENCE'),                // required: minting/verifying throws when not set (null/blank)
     'ttl' => env('JWT_TTL', 900),                     // access token seconds (≥1)
     'challenge_ttl' => env('JWT_CHALLENGE_TTL', 300), // 2fa_pending (≥1)
     'verify_ttl' => env('JWT_VERIFY_TTL', 3600),      // email_verify (≥1)

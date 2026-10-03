@@ -65,17 +65,17 @@ it('overwrites existing keys with --force', function (): void {
     expect(file_get_contents($this->private))->not->toBe($original);
 });
 
-it('fails when no private key path is configured', function (): void {
-    config(['jwt.private_key_path' => null]);
+it('fails when no private key path is configured', function (mixed $unset): void {
+    config(['jwt.private_key_path' => $unset]);
 
     $this->artisan('jwt:generate-keys')->assertFailed();
-});
+})->with(['null' => [null], 'blank' => [''], 'whitespace' => ['  ']]);
 
-it('fails when no public key path is configured', function (): void {
-    config(['jwt.public_key_path' => null]);
+it('fails when no public key path is configured', function (mixed $unset): void {
+    config(['jwt.public_key_path' => $unset]);
 
     $this->artisan('jwt:generate-keys')->assertFailed();
-});
+})->with(['null' => [null], 'blank' => [''], 'whitespace' => ['  ']]);
 
 /*
  * The README's install step, against the SHIPPED config (no JWT_* env): the

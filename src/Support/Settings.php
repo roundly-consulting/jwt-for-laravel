@@ -8,10 +8,11 @@ use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
- * Strict readers for the package's non-boolean settings. An absent (null) key takes
- * its default; a present value of the wrong shape throws {@see JwtMisconfigured}
- * naming the key — `'five'` never becomes a 0-second TTL, and a mistyped list or
- * class never silently widens what the package accepts.
+ * Strict readers for the package's non-boolean settings. A key that is not set —
+ * absent, null or blank (`''` or whitespace, what a host's `KEY=` gives) — takes its
+ * default; a present value of the wrong shape throws {@see JwtMisconfigured} naming
+ * the key — `'five'` never becomes a 0-second TTL, and a mistyped list or class
+ * never silently widens what the package accepts.
  *
  * Callers read the value with a literal `config()` themselves and hand it in, so the
  * key stays visible to the config contract.
@@ -22,7 +23,7 @@ final class Settings
 {
     /**
      * An int or a canonical integer string (env values arrive as strings), bounded
-     * by `$min`; `$default` only when `$value` is null.
+     * by `$min`; `$default` when `$value` is not set (null or blank).
      *
      * @throws JwtMisconfigured
      */
@@ -51,26 +52,28 @@ final class Settings
     }
 
     /**
-     * A required string: `$default` only when `$value` is null; a blank or
+     * A required string: `$default` when `$value` is not set (null or blank); a
      * non-string value throws instead of silently reading as the default.
      *
      * @throws JwtMisconfigured
      */
     public static function string(string $key, mixed $value, string $default): string
     {
-        $value ??= $default;
+        if (self::notSet($value)) {
+            return $default;
+        }
 
-        if (! is_string($value) || trim($value) === '') {
-            throw JwtMisconfigured::invalidValue($key, 'a non-empty string', $value);
+        if (! is_string($value)) {
+            throw JwtMisconfigured::invalidValue($key, 'a string', $value);
         }
 
         return $value;
     }
 
     /**
-     * A list of non-empty strings (each trimmed); `[]` when absent. A non-array, or an
-     * entry that is not a non-empty string, throws — a mistyped allow-list must never
-     * read as the empty "allow anything" list.
+     * A list of non-empty strings (each trimmed); `[]` when not set (null or blank). A
+     * non-array, or an entry that is not a non-empty string, throws — a mistyped
+     * allow-list must never read as the empty "allow anything" list.
      *
      * @return list<string>
      *
@@ -78,7 +81,7 @@ final class Settings
      */
     public static function stringList(string $key, mixed $value): array
     {
-        if ($value === null) {
+        if (self::notSet($value)) {
             return [];
         }
 
@@ -97,5 +100,14 @@ final class Settings
         }
 
         return $strings;
+    }
+
+    /**
+     * Absent, null or blank (`''` or whitespace): the key is not set, so its default
+     * applies — a host's `KEY=` means the same as leaving the key out.
+     */
+    public static function notSet(mixed $value): bool
+    {
+        return $value === null || (is_string($value) && trim($value) === '');
     }
 }

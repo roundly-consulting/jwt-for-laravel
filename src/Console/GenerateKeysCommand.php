@@ -29,13 +29,13 @@ final class GenerateKeysCommand extends Command
         $privatePath = config('jwt.private_key_path');
         $publicPath = config('jwt.public_key_path');
 
-        if (! is_string($privatePath) || $privatePath === '') {
+        if (! is_string($privatePath) || trim($privatePath) === '') {
             $this->components->error('Set JWT_PRIVATE_KEY_PATH before generating keys.');
 
             return self::FAILURE;
         }
 
-        if (! is_string($publicPath) || $publicPath === '') {
+        if (! is_string($publicPath) || trim($publicPath) === '') {
             $this->components->error('Set JWT_PUBLIC_KEY_PATH before generating keys.');
 
             return self::FAILURE;

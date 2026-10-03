@@ -8,6 +8,7 @@ use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
 use RoundlyConsulting\Jwt\JwtServiceProvider;
 use RoundlyConsulting\Jwt\ServiceTokens\NativeServiceTokenService;
 use RoundlyConsulting\Jwt\Support\KeyRepository;
+use RoundlyConsulting\Jwt\Support\Settings;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenIssuer;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
 
@@ -63,6 +64,15 @@ it('reads an env-style "off" denylist switch from the shipped config as off', fu
     expect(Artisan::output())->toMatch('/Denylist check\s*\.*\s*OFF/');
 });
 
+it('reads a blank switch in the about section as its default (strict config)', function (): void {
+    config(['jwt.guard.check_denylist' => '', 'jwt.authorize_from_claims' => ' ']);
+
+    Artisan::call('about --only=jwt');
+
+    expect(Artisan::output())->toMatch('/Denylist check\s*\.*\s*ON/')
+        ->toMatch('/Claim authorization\s*\.*\s*OFF/');
+});
+
 it('refuses a typo in the claim authorization switch when the provider boots (strict config)', function (): void {
     config(['jwt.authorize_from_claims' => 'disabled']);
 
@@ -104,12 +114,30 @@ it('refuses a junk or out-of-range integer instead of reading it as 0 (strict co
     'ttl word' => ['jwt.ttl', 'five', UserTokenIssuer::class],
     'ttl zero' => ['jwt.ttl', 0, UserTokenIssuer::class],
     'challenge ttl float string' => ['jwt.challenge_ttl', '1.5', UserTokenIssuer::class],
-    'verify ttl blank' => ['jwt.verify_ttl', '', UserTokenIssuer::class],
     'leeway junk' => ['jwt.leeway', '10s', UserTokenVerifier::class],
     'leeway negative' => ['jwt.leeway', -1, UserTokenVerifier::class],
     'denylist leeway junk' => ['jwt.leeway', 'ten', Denylist::class],
     'service ttl junk' => ['jwt.service.ttl', 'a minute', NativeServiceTokenService::class],
 ]);
+
+it('reads a blank integer as not set, so the shipped default applies (strict config)', function (string $blank): void {
+    config([
+        'jwt.issuer' => 'jwt-issuer',
+        'jwt.audience' => 'web',
+        'jwt.service.secret' => 'unit-test-service-secret-0123456789ab',
+        'jwt.denylist.store' => 'array',
+        'jwt.ttl' => $blank,
+        'jwt.challenge_ttl' => $blank,
+        'jwt.verify_ttl' => $blank,
+        'jwt.leeway' => $blank,
+        'jwt.service.ttl' => $blank,
+    ]);
+
+    expect(app(UserTokenIssuer::class))->toBeInstanceOf(UserTokenIssuer::class)
+        ->and(app(UserTokenVerifier::class))->toBeInstanceOf(UserTokenVerifier::class)
+        ->and(app(Denylist::class))->toBeInstanceOf(Denylist::class)
+        ->and(app(NativeServiceTokenService::class))->toBeInstanceOf(NativeServiceTokenService::class);
+})->with(['empty' => [''], 'whitespace' => ['  ']]);
 
 it('uses the shipped defaults for absent integers (strict config)', function (): void {
     config([
@@ -139,7 +167,7 @@ it('refuses a mistyped string or list setting instead of using the default (stri
     'issuers not a list' => ['jwt.service.issuers', 'billing,api', NativeServiceTokenService::class],
     'issuers non-string entry' => ['jwt.service.issuers', ['billing', 42], NativeServiceTokenService::class],
     'issuers blank entry' => ['jwt.service.issuers', ['billing', ' '], NativeServiceTokenService::class],
-    'denylist prefix blank' => ['jwt.denylist.prefix', '', Denylist::class],
+    'denylist prefix not a string' => ['jwt.denylist.prefix', ['jwt:'], Denylist::class],
     'denylist store not a string' => ['jwt.denylist.store', ['redis'], Denylist::class],
     'kid not a string' => ['jwt.kid', 7, KeyRepository::class],
     'key path not a string' => ['jwt.public_key_path', ['a.pem'], KeyRepository::class],
@@ -147,3 +175,19 @@ it('refuses a mistyped string or list setting instead of using the default (stri
     'service name not a string' => ['jwt.service.name', ['svc'], NativeServiceTokenService::class],
     'service secret not a string' => ['jwt.service.secret', 123, NativeServiceTokenService::class],
 ]);
+
+it('reads a blank string or list setting as not set, so the default applies (strict config)', function (): void {
+    expect(Settings::string('jwt.denylist.prefix', '', 'jwt:denylist:'))->toBe('jwt:denylist:')
+        ->and(Settings::string('jwt.denylist.prefix', '  ', 'jwt:denylist:'))->toBe('jwt:denylist:')
+        ->and(Settings::string('jwt.denylist.prefix', 'app:jwt:', 'jwt:denylist:'))->toBe('app:jwt:')
+        ->and(Settings::stringList('jwt.service.issuers', ''))->toBe([])
+        ->and(Settings::stringList('jwt.service.issuers', null))->toBe([])
+        ->and(Settings::optionalString('jwt.kid', ' '))->toBeNull();
+
+    config([
+        'jwt.denylist.store' => 'array',
+        'jwt.denylist.prefix' => '',
+    ]);
+
+    expect(app(Denylist::class))->toBeInstanceOf(Denylist::class);
+});
