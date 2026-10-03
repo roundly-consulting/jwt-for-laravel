@@ -71,7 +71,7 @@ it('parses the per-issuer secret map and round-trips a token through it', functi
     config([
         'app.service' => 'auth',
         'jwt.service.issuer' => 'logger',
-        'jwt.service.secrets' => 'logger:per-issuer-secret-for-logger-0123456789, geo:per-issuer-secret-for-geo-0123456789abc, malformed-pair',
+        'jwt.service.secrets' => 'logger:per-issuer-secret-for-logger-0123456789, geo:per-issuer-secret-for-geo-0123456789abc',
     ]);
 
     $service = app(NativeServiceTokenService::class);
@@ -79,6 +79,23 @@ it('parses the per-issuer secret map and round-trips a token through it', functi
 
     expect($service->verify($issued->token)->string('iss'))->toBe('logger');
 });
+
+it('refuses a malformed per-issuer secret pair instead of dropping it (strict config)', function (string $secrets): void {
+    config([
+        'app.service' => 'auth',
+        'jwt.service.secret' => 'unit-test-service-secret-0123456789ab',
+        'jwt.service.secrets' => $secrets,
+    ]);
+
+    expect(fn () => app(NativeServiceTokenService::class))
+        ->toThrow(JwtMisconfigured::class, 'jwt.service.secrets');
+})->with([
+    'no colon' => ['malformed-pair'],
+    'one bad of two' => ['logger:per-issuer-secret-for-logger-0123456789, malformed-pair'],
+    'empty secret' => ['logger:'],
+    'empty issuer' => [':secret'],
+    'trailing comma' => ['logger:per-issuer-secret-for-logger-0123456789,'],
+]);
 
 it('trims padding around per-issuer secret pairs', function (): void {
     config([
@@ -179,7 +196,7 @@ it('flags a missing key, issuer, audience and service secret in about', function
 
     expect($output)->toContain('MISSING')
         ->and($output)->toContain('HS256 (no secret)')
-        ->and($output)->toContain('DEFAULT')
+        ->and($output)->toMatch('/Access token TTL\W+INVALID/')
         ->and($output)->toContain('OFF');
 });
 

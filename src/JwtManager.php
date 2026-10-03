@@ -20,6 +20,7 @@ use RoundlyConsulting\Jwt\Jose\Exceptions\JwtException;
 use RoundlyConsulting\Jwt\Jose\Exceptions\KeyLoadFailed;
 use RoundlyConsulting\Jwt\ServiceTokens\Services;
 use RoundlyConsulting\Jwt\Support\KeyRepository;
+use RoundlyConsulting\Jwt\Support\Settings;
 use RoundlyConsulting\Jwt\Testing\JwtFake;
 use RoundlyConsulting\Jwt\UserTokens\AccessTokenRequest;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\ClaimsAuthenticatable;
@@ -198,13 +199,17 @@ class JwtManager
 
         return new JwtGuardSettings(
             guard: $guard,
-            audience: $this->nonEmptyString($options['audience'] ?? null) ?? (string) $config->get('jwt.audience'),
-            scope: $this->scope($options['scope'] ?? null) ?? $this->globalScope($config->get('jwt.guard.scope')),
+            audience: Settings::optionalString("auth.guards.{$guard}.audience", $options['audience'] ?? null)
+                ?? Settings::optionalString('jwt.audience', $config->get('jwt.audience'))
+                ?? '',
+            scope: $this->scope("auth.guards.{$guard}.scope", $options['scope'] ?? null)
+                ?? $this->scope('jwt.guard.scope', $config->get('jwt.guard.scope'))
+                ?? Scope::Access->value,
             checkDenylist: $this->flag("auth.guards.{$guard}.check_denylist", $options['check_denylist'] ?? null)
                 ?? $this->flag('jwt.guard.check_denylist', $config->get('jwt.guard.check_denylist'))
                 ?? true,
-            identity: $this->identityClass($options['identity'] ?? null)
-                ?? $this->identityClass($config->get('jwt.guard.identity'))
+            identity: $this->identityClass("auth.guards.{$guard}.identity", $options['identity'] ?? null)
+                ?? $this->identityClass('jwt.guard.identity', $config->get('jwt.guard.identity'))
                 ?? TokenUser::class,
             tokenVersion: $this->tokenVersion($options['token_version'] ?? null, $guard)
                 ?? $this->tokenVersion($config->get('jwt.guard.token_version'), $guard),
@@ -231,26 +236,20 @@ class JwtManager
     }
 
     /**
-     * A per-guard scope: a {@see Scope} case normalised to its wire value, or a
-     * plain string as-is. Anything else defers to the global scope.
+     * A configured scope: a {@see Scope} case normalised to its wire value, or a
+     * non-empty custom string as-is; null when unset (defer to the next level).
+     * Anything else throws — a mistyped scope must not quietly defer to another.
+     *
+     * @throws JwtMisconfigured
      */
-    private function scope(mixed $value): ?string
+    private function scope(string $key, mixed $value): ?string
     {
         return match (true) {
+            $value === null => null,
             $value instanceof Scope => $value->value,
-            is_string($value) => $value,
-            default => null,
+            is_string($value) && trim($value) !== '' => $value,
+            default => throw JwtMisconfigured::invalidValue($key, 'a Scope case or a non-empty string', $value),
         };
-    }
-
-    private function globalScope(mixed $value): string
-    {
-        return $value instanceof Scope ? $value->value : (string) $value;
-    }
-
-    private function nonEmptyString(mixed $value): ?string
-    {
-        return is_string($value) && trim($value) !== '' ? $value : null;
     }
 
     /**
@@ -267,11 +266,25 @@ class JwtManager
     }
 
     /**
+     * A configured claims-mode identity class, or null when unset (defer to the next
+     * level). Anything that is not a {@see ClaimsAuthenticatable} class throws rather
+     * than silently becoming the packaged {@see TokenUser}.
+     *
      * @return class-string<ClaimsAuthenticatable>|null
+     *
+     * @throws JwtMisconfigured
      */
-    private function identityClass(mixed $value): ?string
+    private function identityClass(string $key, mixed $value): ?string
     {
-        return is_string($value) && is_subclass_of($value, ClaimsAuthenticatable::class) ? $value : null;
+        if ($value === null) {
+            return null;
+        }
+
+        if (! is_string($value) || ! is_subclass_of($value, ClaimsAuthenticatable::class)) {
+            throw JwtMisconfigured::invalidValue($key, 'a class implementing '.ClaimsAuthenticatable::class, $value);
+        }
+
+        return $value;
     }
 
     /**

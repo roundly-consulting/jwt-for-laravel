@@ -3,8 +3,13 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Artisan;
+use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
 use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
 use RoundlyConsulting\Jwt\JwtServiceProvider;
+use RoundlyConsulting\Jwt\ServiceTokens\NativeServiceTokenService;
+use RoundlyConsulting\Jwt\Support\KeyRepository;
+use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenIssuer;
+use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
 
 /**
  * Regression (strict config sweep): the shipped config cast both switches with
@@ -72,3 +77,73 @@ it('refuses a typo in either switch in the about section (strict config)', funct
 
     expect(fn () => Artisan::call('about --only=jwt'))->toThrow(JwtMisconfigured::class, "[{$key}]");
 })->with(['jwt.guard.check_denylist', 'jwt.authorize_from_claims']);
+
+it('hands raw env integers to the strict reader (strict config)', function (string $env, string $path): void {
+    $config = shippedJwtConfig($env, 'five');
+
+    expect(data_get($config, $path))->toBe('five');
+})->with([
+    'JWT_TTL' => ['JWT_TTL', 'ttl'],
+    'JWT_CHALLENGE_TTL' => ['JWT_CHALLENGE_TTL', 'challenge_ttl'],
+    'JWT_VERIFY_TTL' => ['JWT_VERIFY_TTL', 'verify_ttl'],
+    'JWT_LEEWAY' => ['JWT_LEEWAY', 'leeway'],
+    'SERVICE_JWT_TTL' => ['SERVICE_JWT_TTL', 'service.ttl'],
+]);
+
+it('refuses a junk or out-of-range integer instead of reading it as 0 (strict config)', function (string $key, mixed $junk, string $service): void {
+    config([
+        'jwt.issuer' => 'jwt-issuer',
+        'jwt.audience' => 'web',
+        'jwt.service.secret' => 'unit-test-service-secret-0123456789ab',
+        'jwt.denylist.store' => 'array',
+        $key => $junk,
+    ]);
+
+    expect(fn () => app($service))->toThrow(JwtMisconfigured::class, "Configuration value [{$key}]");
+})->with([
+    'ttl word' => ['jwt.ttl', 'five', UserTokenIssuer::class],
+    'ttl zero' => ['jwt.ttl', 0, UserTokenIssuer::class],
+    'challenge ttl float string' => ['jwt.challenge_ttl', '1.5', UserTokenIssuer::class],
+    'verify ttl blank' => ['jwt.verify_ttl', '', UserTokenIssuer::class],
+    'leeway junk' => ['jwt.leeway', '10s', UserTokenVerifier::class],
+    'leeway negative' => ['jwt.leeway', -1, UserTokenVerifier::class],
+    'denylist leeway junk' => ['jwt.leeway', 'ten', Denylist::class],
+    'service ttl junk' => ['jwt.service.ttl', 'a minute', NativeServiceTokenService::class],
+]);
+
+it('uses the shipped defaults for absent integers (strict config)', function (): void {
+    config([
+        'jwt.issuer' => 'jwt-issuer',
+        'jwt.audience' => 'web',
+        'jwt.ttl' => null,
+        'jwt.challenge_ttl' => null,
+        'jwt.verify_ttl' => null,
+        'jwt.leeway' => '0',
+    ]);
+
+    expect(app(UserTokenIssuer::class))->toBeInstanceOf(UserTokenIssuer::class)
+        ->and(app(UserTokenVerifier::class))->toBeInstanceOf(UserTokenVerifier::class);
+});
+
+it('refuses a mistyped string or list setting instead of using the default (strict config)', function (string $key, mixed $junk, string $service): void {
+    config([
+        'jwt.issuer' => 'jwt-issuer',
+        'jwt.audience' => 'web',
+        'jwt.service.secret' => 'unit-test-service-secret-0123456789ab',
+        'jwt.denylist.store' => 'array',
+        $key => $junk,
+    ]);
+
+    expect(fn () => app($service))->toThrow(JwtMisconfigured::class, "Configuration value [{$key}]");
+})->with([
+    'issuers not a list' => ['jwt.service.issuers', 'billing,api', NativeServiceTokenService::class],
+    'issuers non-string entry' => ['jwt.service.issuers', ['billing', 42], NativeServiceTokenService::class],
+    'issuers blank entry' => ['jwt.service.issuers', ['billing', ' '], NativeServiceTokenService::class],
+    'denylist prefix blank' => ['jwt.denylist.prefix', '', Denylist::class],
+    'denylist store not a string' => ['jwt.denylist.store', ['redis'], Denylist::class],
+    'kid not a string' => ['jwt.kid', 7, KeyRepository::class],
+    'key path not a string' => ['jwt.public_key_path', ['a.pem'], KeyRepository::class],
+    'issuer not a string' => ['jwt.issuer', ['iss'], UserTokenIssuer::class],
+    'service name not a string' => ['jwt.service.name', ['svc'], NativeServiceTokenService::class],
+    'service secret not a string' => ['jwt.service.secret', 123, NativeServiceTokenService::class],
+]);

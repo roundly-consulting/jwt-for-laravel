@@ -27,6 +27,7 @@ use RoundlyConsulting\Jwt\ServiceTokens\NativeServiceTokenService;
 use RoundlyConsulting\Jwt\ServiceTokens\ServiceGuard;
 use RoundlyConsulting\Jwt\Support\KeyPath;
 use RoundlyConsulting\Jwt\Support\KeyRepository;
+use RoundlyConsulting\Jwt\Support\Settings;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\ChecksPermissions;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenIssuer;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
@@ -55,7 +56,7 @@ final class JwtServiceProvider extends PackageServiceProvider
                 'Verification key' => self::keyFile('jwt.public_key_path', $app->basePath()),
                 'Issuer' => self::configured('jwt.issuer'),
                 'Audience' => self::configured('jwt.audience'),
-                'Access token TTL' => self::seconds('jwt.ttl'),
+                'Access token TTL' => self::seconds('jwt.ttl', 900),
                 'Service tokens' => self::serviceTokenMode(),
                 'Denylist check' => Config::using(JwtMisconfigured::class)->boolean('jwt.guard.check_denylist', true) ? 'ON' : 'OFF',
                 'Claim authorization' => Config::using(JwtMisconfigured::class)->boolean('jwt.authorize_from_claims') ? 'ON' : 'OFF',
@@ -70,29 +71,31 @@ final class JwtServiceProvider extends PackageServiceProvider
         $this->app->singleton(Decoder::class);
 
         $this->app->singleton(KeyRepository::class, fn (): KeyRepository => new KeyRepository(
-            $this->resolvedKeyPath(config('jwt.private_key_path')),
-            $this->resolvedKeyPath(config('jwt.public_key_path')),
-            $this->nullableString(config('jwt.kid')),
+            $this->resolvedKeyPath(Settings::optionalString('jwt.private_key_path', config('jwt.private_key_path'))),
+            $this->resolvedKeyPath(Settings::optionalString('jwt.public_key_path', config('jwt.public_key_path'))),
+            Settings::optionalString('jwt.kid', config('jwt.kid')),
         ));
 
+        // An absent issuer/audience stays '' here so minting and verifying throw the
+        // dedicated missingIssuer()/missingAudience(); a non-string one throws now.
         $this->app->singleton(UserTokenIssuer::class, fn (Application $app): NativeUserTokenIssuer => new NativeUserTokenIssuer(
             $app->make(Encoder::class),
             $app->make(KeyRepository::class),
-            (string) config('jwt.issuer'),
-            (string) config('jwt.audience'),
-            (int) config('jwt.ttl'),
-            (int) config('jwt.challenge_ttl'),
-            (int) config('jwt.verify_ttl'),
-            $this->nullableString(config('jwt.kid')),
+            Settings::optionalString('jwt.issuer', config('jwt.issuer')) ?? '',
+            Settings::optionalString('jwt.audience', config('jwt.audience')) ?? '',
+            Settings::integer('jwt.ttl', config('jwt.ttl'), 900, min: 1),
+            Settings::integer('jwt.challenge_ttl', config('jwt.challenge_ttl'), 300, min: 1),
+            Settings::integer('jwt.verify_ttl', config('jwt.verify_ttl'), 3600, min: 1),
+            Settings::optionalString('jwt.kid', config('jwt.kid')),
             $this->dispatcher($app),
         ));
 
         $this->app->singleton(UserTokenVerifier::class, fn (Application $app): NativeUserTokenVerifier => new NativeUserTokenVerifier(
             $app->make(Decoder::class),
             $app->make(KeyRepository::class),
-            (string) config('jwt.issuer'),
-            (string) config('jwt.audience'),
-            (int) config('jwt.leeway'),
+            Settings::optionalString('jwt.issuer', config('jwt.issuer')) ?? '',
+            Settings::optionalString('jwt.audience', config('jwt.audience')) ?? '',
+            Settings::integer('jwt.leeway', config('jwt.leeway'), 10, min: 0),
         ));
 
         $this->app->singleton(NativeServiceTokenService::class, function (Application $app): NativeServiceTokenService {
@@ -101,13 +104,13 @@ final class JwtServiceProvider extends PackageServiceProvider
             return new NativeServiceTokenService(
                 $app->make(Encoder::class),
                 $app->make(Decoder::class),
-                $this->nullableString(config('jwt.service.secret')),
-                $this->nullableString(config('jwt.service.issuer')) ?? $serviceName,
-                $this->nullableString(config('jwt.service.audience')),
-                (int) config('jwt.service.ttl'),
-                $this->stringList(config('jwt.service.issuers')),
+                Settings::optionalString('jwt.service.secret', config('jwt.service.secret')),
+                Settings::optionalString('jwt.service.issuer', config('jwt.service.issuer')) ?? $serviceName,
+                Settings::optionalString('jwt.service.audience', config('jwt.service.audience')),
+                Settings::integer('jwt.service.ttl', config('jwt.service.ttl'), 60, min: 1),
+                Settings::stringList('jwt.service.issuers', config('jwt.service.issuers')),
                 $serviceName,
-                (int) config('jwt.leeway'),
+                Settings::integer('jwt.leeway', config('jwt.leeway'), 10, min: 0),
                 $this->dispatcher($app),
                 $this->secretMap(config('jwt.service.secrets')),
             );
@@ -118,10 +121,10 @@ final class JwtServiceProvider extends PackageServiceProvider
 
         $this->app->singleton(Denylist::class, fn (Application $app): CacheDenylist => new CacheDenylist(
             $app->make(CacheFactory::class),
-            $this->nullableString(config('jwt.denylist.store')),
-            (string) config('jwt.denylist.prefix'),
+            Settings::optionalString('jwt.denylist.store', config('jwt.denylist.store')),
+            Settings::string('jwt.denylist.prefix', config('jwt.denylist.prefix'), 'jwt:denylist:'),
             $this->dispatcher($app),
-            (int) config('jwt.leeway'),
+            Settings::integer('jwt.leeway', config('jwt.leeway'), 10, min: 0),
         ));
 
         $this->app->singleton(JwtManager::class, fn (Application $app): JwtManager => new JwtManager($app));
@@ -165,11 +168,17 @@ final class JwtServiceProvider extends PackageServiceProvider
         return is_file($path) && is_readable($path) ? 'SET' : 'MISSING';
     }
 
-    private static function seconds(string $key): string
+    /**
+     * A TTL through its strict reader — `INVALID` rather than a throw, so `about`
+     * reports a misconfiguration instead of dying on it (the real reads still throw).
+     */
+    private static function seconds(string $key, int $default): string
     {
-        $value = config($key);
-
-        return is_numeric($value) ? ((int) $value).'s' : 'DEFAULT';
+        try {
+            return Settings::integer($key, config($key), $default, min: 1).'s';
+        } catch (JwtMisconfigured) {
+            return 'INVALID';
+        }
     }
 
     /**
@@ -313,11 +322,12 @@ final class JwtServiceProvider extends PackageServiceProvider
      * the default `iss` of the ones it mints: `jwt.service.name`, else a host's
      * `app.service` (not a stock Laravel key, but services that define it keep
      * their identity), else a slug of `app.name`. '' when none can be derived, so
-     * verification fails closed instead of pinning nothing.
+     * verification fails closed instead of pinning nothing. A `jwt.service.name`
+     * that is not a string throws rather than silently re-pinning to `app.name`.
      */
     private function serviceName(): string
     {
-        foreach ([config('jwt.service.name'), config('app.service')] as $value) {
+        foreach ([Settings::optionalString('jwt.service.name', config('jwt.service.name')), config('app.service')] as $value) {
             if (is_string($value) && trim($value) !== '') {
                 return trim($value);
             }
@@ -328,78 +338,47 @@ final class JwtServiceProvider extends PackageServiceProvider
         return is_string($appName) ? Str::slug($appName) : '';
     }
 
-    private function nullableString(mixed $value): ?string
-    {
-        return is_string($value) && $value !== '' ? $value : null;
-    }
-
     /**
      * A configured key path, anchored to the application root when relative, so
      * key loading never depends on the process's working directory.
      */
-    private function resolvedKeyPath(mixed $value): ?string
+    private function resolvedKeyPath(?string $path): ?string
     {
-        $path = $this->nullableString($value);
-
         return $path === null ? null : KeyPath::resolve($path, $this->app->basePath());
     }
 
     /**
      * Parses the `SERVICE_JWT_SECRETS` per-issuer map: a comma-separated list
-     * of `issuer:secret` pairs. Malformed pairs are dropped rather than half-
-     * parsed into a wrong issuer→secret binding.
+     * of `issuer:secret` pairs (null or blank = per-issuer mode off). A malformed
+     * pair throws rather than being dropped: dropping every pair would quietly
+     * fall back to the shared `secret`, unbinding each issuer from its own key.
      *
      * @return array<string, string>
+     *
+     * @throws JwtMisconfigured
      */
     private function secretMap(mixed $value): array
     {
-        if (! is_string($value) || trim($value) === '') {
+        $value = Settings::optionalString('jwt.service.secrets', $value);
+
+        if ($value === null) {
             return [];
         }
 
         $map = [];
 
         foreach (explode(',', $value) as $pair) {
-            $pair = trim($pair);
-
-            if ($pair === '' || ! str_contains($pair, ':')) {
-                continue;
-            }
-
-            [$issuer, $secret] = explode(':', $pair, 2);
-
             // Trim both sides so `billing: s3cret` doesn't derive a different
             // HMAC key from a stray space, and a padded issuer still matches.
-            $issuer = trim($issuer);
-            $secret = trim($secret);
+            [$issuer, $secret] = str_contains($pair, ':') ? array_map(trim(...), explode(':', $pair, 2)) : ['', ''];
 
-            if ($issuer !== '' && $secret !== '') {
-                $map[$issuer] = $secret;
+            if ($issuer === '' || $secret === '') {
+                throw JwtMisconfigured::malformedSecretPair();
             }
+
+            $map[$issuer] = $secret;
         }
 
         return $map;
-    }
-
-    /**
-     * @return list<string>
-     */
-    private function stringList(mixed $value): array
-    {
-        if (! is_array($value)) {
-            return [];
-        }
-
-        $strings = [];
-
-        foreach ($value as $item) {
-            // Trim so `JWT_SERVICE_ISSUERS="billing, api"` doesn't yield a
-            // never-matching " api" entry; drop blanks.
-            if (is_string($item) && ($trimmed = trim($item)) !== '') {
-                $strings[] = $trimmed;
-            }
-        }
-
-        return $strings;
     }
 }

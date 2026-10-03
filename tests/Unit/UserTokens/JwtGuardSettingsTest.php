@@ -61,15 +61,41 @@ it('falls back to the global jwt option when the guard omits it', function (stri
     'token_version' => ['jwt.guard.token_version', TokenVersionResolver::class, 'tokenVersion'],
 ]);
 
-it('falls back to the global option when the per-guard value is unusable', function (string $key, mixed $value, string $property, mixed $expected): void {
+it('defers to the global option when the per-guard value is unset or blank', function (string $key, mixed $value, string $property, mixed $expected): void {
     expect(settingsFor([$key => $value])->{$property})->toBe($expected);
 })->with([
     'blank audience' => ['audience', '  ', 'audience', 'web'],
     'null audience' => ['audience', null, 'audience', 'web'],
-    'non-string scope' => ['scope', 42, 'scope', 'access'],
-    'identity not a ClaimsAuthenticatable' => ['identity', stdClass::class, 'identity', TokenUser::class],
+    'null scope' => ['scope', null, 'scope', 'access'],
+    'null identity' => ['identity', null, 'identity', TokenUser::class],
     'blank token_version' => ['token_version', '', 'tokenVersion', null],
 ]);
+
+it('refuses an unusable per-guard value instead of deferring to the global one (strict config)', function (string $key, mixed $value): void {
+    expect(fn () => settingsFor([$key => $value]))
+        ->toThrow(JwtMisconfigured::class, "Configuration value [auth.guards.x.{$key}]");
+})->with([
+    'non-string audience' => ['audience', ['web']],
+    'non-string scope' => ['scope', 42],
+    'blank scope' => ['scope', ' '],
+    'identity not a ClaimsAuthenticatable' => ['identity', stdClass::class],
+    'identity not a class' => ['identity', 'Not\\A\\Class'],
+]);
+
+it('refuses an unusable global scope or audience (strict config)', function (string $key, mixed $value): void {
+    config([$key => $value]);
+
+    expect(fn () => settingsFor([]))->toThrow(JwtMisconfigured::class, "Configuration value [{$key}]");
+})->with([
+    'scope' => ['jwt.guard.scope', false],
+    'audience' => ['jwt.audience', 42],
+]);
+
+it('reads an unset global scope as access (strict config)', function (): void {
+    config(['jwt.guard.scope' => null]);
+
+    expect(settingsFor([])->scope)->toBe('access');
+});
 
 it('refuses a typo in a per-guard check_denylist instead of deferring to the global one (strict config)', function (mixed $junk): void {
     expect(fn () => settingsFor(['check_denylist' => $junk]))
@@ -101,8 +127,15 @@ it('keeps a configured token_version closure as-is', function (): void {
     expect(settingsFor(['token_version' => $resolver])->tokenVersion)->toBe($resolver);
 });
 
-it('falls back to TokenUser when neither identity is usable', function (): void {
+it('refuses a global identity that is not a ClaimsAuthenticatable instead of using TokenUser (strict config)', function (): void {
     config(['jwt.guard.identity' => 'Not\\A\\Class']);
+
+    expect(fn () => settingsFor([]))
+        ->toThrow(JwtMisconfigured::class, 'Configuration value [jwt.guard.identity] must be a class implementing');
+});
+
+it('uses TokenUser when no identity is configured at all', function (): void {
+    config(['jwt.guard.identity' => null]);
 
     expect(settingsFor([])->identity)->toBe(TokenUser::class);
 });

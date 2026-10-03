@@ -5,6 +5,11 @@ declare(strict_types=1);
 use RoundlyConsulting\Jwt\UserTokens\TokenUser;
 
 return [
+    // Every value is read strictly: an absent key takes its default, but a present
+    // value of the wrong shape (a TTL of 'five', a non-list `issuers`, a malformed
+    // `secrets` pair, an `identity` that is not a ClaimsAuthenticatable) throws
+    // JwtMisconfigured naming the key instead of silently falling back.
+
     // ── User tokens (RS256) ──────────────────────────────────────────────
     // `jwt:generate-keys` writes both. Only minting reads the private key, so a
     // verify-only app just never creates it. `.key` because a stock Laravel
@@ -13,10 +18,10 @@ return [
     'public_key_path' => env('JWT_PUBLIC_KEY_PATH', storage_path('jwt-public.pem')),
     'issuer' => env('JWT_ISSUER'),                    // required: minting/verifying throws when empty
     'audience' => env('JWT_AUDIENCE'),                // required: minting/verifying throws when empty
-    'ttl' => (int) env('JWT_TTL', 900),               // access token seconds
-    'challenge_ttl' => (int) env('JWT_CHALLENGE_TTL', 300), // 2fa_pending
-    'verify_ttl' => (int) env('JWT_VERIFY_TTL', 3600),      // email_verify
-    'leeway' => (int) env('JWT_LEEWAY', 10),          // clock-skew seconds
+    'ttl' => env('JWT_TTL', 900),                     // access token seconds (≥1)
+    'challenge_ttl' => env('JWT_CHALLENGE_TTL', 300), // 2fa_pending (≥1)
+    'verify_ttl' => env('JWT_VERIFY_TTL', 3600),      // email_verify (≥1)
+    'leeway' => env('JWT_LEEWAY', 10),                // clock-skew seconds (≥0)
     'kid' => env('JWT_KID'),                          // emit-only metadata when set
 
     // ── User guard ──────────────────────────────────────────────────────
@@ -52,7 +57,7 @@ return [
         'name' => env('JWT_SERVICE_NAME'),
         'issuer' => env('JWT_SERVICE_ISSUER', env('APP_SERVICE')), // unset ⇒ the service name
         'audience' => env('JWT_SERVICE_AUDIENCE'),
-        'ttl' => (int) env('SERVICE_JWT_TTL', 60),
+        'ttl' => env('SERVICE_JWT_TTL', 60),               // seconds (≥1)
         'issuers' => array_values(array_filter(array_map('trim', explode(',', (string) env('JWT_SERVICE_ISSUERS', ''))))), // allow-list; empty ⇒ any
     ],
 

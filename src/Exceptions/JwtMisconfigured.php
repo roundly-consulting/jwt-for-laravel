@@ -50,4 +50,26 @@ final class JwtMisconfigured extends RuntimeException
     {
         return new self("The access-token request names audience [{$requested}], but jwt guard [{$guard}] mints for [{$expected}].");
     }
+
+    /**
+     * A configured value of the wrong shape — named by key, so a typo fails loudly at
+     * the read that would otherwise have quietly fallen back. Only non-secret keys
+     * reach here with a string (a class name, a scope, a blank prefix), so a string is
+     * echoed; anything else renders as its type.
+     */
+    public static function invalidValue(string $key, string $expectation, mixed $value): self
+    {
+        $given = match (true) {
+            is_string($value) => "[{$value}]",
+            is_int($value) || is_bool($value) => '['.var_export($value, true).']',
+            default => get_debug_type($value),
+        };
+
+        return new self("Configuration value [{$key}] must be {$expectation}, {$given} given.");
+    }
+
+    public static function malformedSecretPair(): self
+    {
+        return new self('Configuration value [jwt.service.secrets] must be a comma-separated list of issuer:secret pairs, a malformed pair was given.');
+    }
 }
