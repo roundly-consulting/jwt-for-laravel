@@ -104,23 +104,23 @@ verification once the keys/secret are set. Every key and its backing env var:
 | `public_key_path` | `JWT_PUBLIC_KEY_PATH` | `storage_path('jwt-public.pem')` | RSA public key path |
 | `issuer` | `JWT_ISSUER` | `null` | Pinned `iss` — **required**; empty throws `JwtMisconfigured` |
 | `audience` | `JWT_AUDIENCE` | `null` | Pinned `aud` — **required**; empty throws `JwtMisconfigured` |
-| `ttl` | `JWT_TTL` | `900` | Access-token lifetime (seconds) |
-| `challenge_ttl` | `JWT_CHALLENGE_TTL` | `300` | `2fa_pending` lifetime |
-| `verify_ttl` | `JWT_VERIFY_TTL` | `3600` | `email_verify` lifetime |
-| `leeway` | `JWT_LEEWAY` | `10` | Clock-skew tolerance (seconds) |
+| `ttl` | `JWT_TTL` | `900` | Access-token lifetime (seconds, ≥1) |
+| `challenge_ttl` | `JWT_CHALLENGE_TTL` | `300` | `2fa_pending` lifetime (seconds, ≥1) |
+| `verify_ttl` | `JWT_VERIFY_TTL` | `3600` | `email_verify` lifetime (seconds, ≥1) |
+| `leeway` | `JWT_LEEWAY` | `10` | Clock-skew tolerance (seconds, ≥0) |
 | `kid` | `JWT_KID` | `null` | Emitted `kid` header when set |
 | `guard.scope` | — | `access` | Scope required to authenticate the `jwt` guard |
-| `guard.identity` | — | `TokenUser::class` | Claims-mode identity class |
+| `guard.identity` | — | `TokenUser::class` | Claims-mode identity class (must implement `ClaimsAuthenticatable`, else throws) |
 | `guard.token_version` | — | `null` | `callable|invokable-class|null` returning the user's current version |
 | `guard.check_denylist` | `JWT_CHECK_DENYLIST` | `true` | Enforce the jti denylist (on/off switch, see below) |
 | `denylist.store` | `JWT_DENYLIST_STORE` | `redis` | Cache store backing the denylist |
 | `denylist.prefix` | `JWT_DENYLIST_PREFIX` | `jwt:denylist:` | Denylist cache-key prefix |
 | `service.secret` | `SERVICE_JWT_SECRET` | `null` | HS256 shared secret, ≥32 random bytes (`openssl rand -base64 48`) |
-| `service.secrets` | `SERVICE_JWT_SECRETS` | `null` | Per-issuer secrets `"billing:<secret>,api:<secret>"`; overrides `secret` |
+| `service.secrets` | `SERVICE_JWT_SECRETS` | `null` | Per-issuer secrets `"billing:<secret>,api:<secret>"`; overrides `secret`. A malformed pair throws |
 | `service.name` | `JWT_SERVICE_NAME` | `app.service`, else `Str::slug(app.name)` | This service's own name: the `aud` inbound service tokens must carry. Set it explicitly to a stable id — the app name can change |
 | `service.issuer` | `JWT_SERVICE_ISSUER` | `env('APP_SERVICE')`, else `service.name` | The `iss` of service tokens this app mints |
 | `service.audience` | `JWT_SERVICE_AUDIENCE` | `null` | Default service-token `aud` |
-| `service.ttl` | `SERVICE_JWT_TTL` | `60` | Service-token lifetime (seconds) |
+| `service.ttl` | `SERVICE_JWT_TTL` | `60` | Service-token lifetime (seconds, ≥1) |
 | `service.issuers` | `JWT_SERVICE_ISSUERS` | `[]` (any) | Comma-separated issuer allow-list |
 | `authorize_from_claims` | `JWT_AUTHORIZE_FROM_CLAIMS` | `false` | Enable the claim-based `Gate::before` (on/off switch, see below) |
 
@@ -128,6 +128,14 @@ The two on/off switches accept `true`/`false`, `1`/`0`, `on`/`off` and `yes`/`no
 (case-insensitive). Unset or `null` reads as the default above; anything else — a typo such as
 `JWT_AUTHORIZE_FROM_CLAIMS=disabled` — throws `JwtMisconfigured` naming the key instead of quietly
 reading as on or off.
+
+Every other value is read just as strictly. An absent key takes the default above. The TTLs and
+`leeway` take an int or a canonical integer string (env values arrive as strings), so `JWT_TTL=five`,
+`'1.5'` or `0` throws `JwtMisconfigured` rather than becoming a 0-second token. A non-string path,
+`kid`, store or secret, a blank `denylist.prefix`, a `service.issuers` that isn't a list of strings,
+a malformed `service.secrets` pair and a `guard.identity` that isn't a `ClaimsAuthenticatable` all
+throw too — none of them silently widens what the package accepts. A blank optional string
+(`JWT_KID=`) reads as unset.
 
 ## Usage
 
@@ -343,10 +351,11 @@ its **own audience** — otherwise a users token with `sub = 5` authenticates as
 ],
 ```
 
-Each guard reads these optional keys from its own `auth.guards.<name>` array, falling back to the
-global value:
+Each guard reads these optional keys from its own `auth.guards.<name>` array; an unset (or blank)
+key defers to the global value, while a present but unusable one (a non-string `scope`, an
+`identity` that isn't a `ClaimsAuthenticatable`) throws `JwtMisconfigured` naming the key:
 
-| `auth.guards.<name>` key | Falls back to | Type |
+| `auth.guards.<name>` key | Defers to | Type |
 |---|---|---|
 | `audience` | `jwt.audience` | non-empty string |
 | `scope` | `jwt.guard.scope` | string or `Scope` case |
