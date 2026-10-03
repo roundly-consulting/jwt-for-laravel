@@ -30,6 +30,7 @@ use RoundlyConsulting\Jwt\UserTokens\IssuedToken;
 use RoundlyConsulting\Jwt\UserTokens\JwtGuardSettings;
 use RoundlyConsulting\Jwt\UserTokens\Scope;
 use RoundlyConsulting\Jwt\UserTokens\TokenUser;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 
 /**
  * The one obvious entry point behind the {@see Jwt} facade — inject it for the
@@ -199,7 +200,9 @@ class JwtManager
             guard: $guard,
             audience: $this->nonEmptyString($options['audience'] ?? null) ?? (string) $config->get('jwt.audience'),
             scope: $this->scope($options['scope'] ?? null) ?? $this->globalScope($config->get('jwt.guard.scope')),
-            checkDenylist: $this->bool($options['check_denylist'] ?? null) ?? (bool) $config->get('jwt.guard.check_denylist'),
+            checkDenylist: $this->flag("auth.guards.{$guard}.check_denylist", $options['check_denylist'] ?? null)
+                ?? $this->flag('jwt.guard.check_denylist', $config->get('jwt.guard.check_denylist'))
+                ?? true,
             identity: $this->identityClass($options['identity'] ?? null)
                 ?? $this->identityClass($config->get('jwt.guard.identity'))
                 ?? TokenUser::class,
@@ -251,12 +254,16 @@ class JwtManager
     }
 
     /**
-     * A per-guard boolean, tolerating env-style strings ("false", "0") that a
-     * plain `(bool)` cast would read as true.
+     * A boolean switch: null when unset (defer to the next level), a bool for an
+     * env-style spelling ("false", "0", "off" — a plain `(bool)` cast reads those as
+     * true), and a {@see JwtMisconfigured} naming the key for anything else, so a
+     * typo never quietly falls back to the global value.
+     *
+     * @throws JwtMisconfigured
      */
-    private function bool(mixed $value): ?bool
+    private function flag(string $key, mixed $value): ?bool
     {
-        return $value === null ? null : filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+        return $value === null ? null : Config::for([$key => $value], JwtMisconfigured::class)->boolean($key);
     }
 
     /**

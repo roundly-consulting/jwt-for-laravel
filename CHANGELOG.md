@@ -52,3 +52,7 @@ Initial public release.
   `JwtMisconfigured` for a guard that is not a `jwt` guard.
 - `JwtManager` is no longer `final` (the fake extends it).
 
+- The `check_denylist` and `authorize_from_claims` switches are read strictly: `.env` spellings
+  `off`/`0`/`no` mean off (the old `(bool) env()` cast read them as on), and a typo such as
+  `disabled` throws `JwtMisconfigured` naming the key — a per-guard `check_denylist` typo no
+  longer defers to the global value.

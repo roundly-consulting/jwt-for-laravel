@@ -9,8 +9,8 @@ use RuntimeException;
 
 /**
  * Raised when user-token configuration is incomplete (empty issuer or
- * audience), a guard name does not point at a `jwt` guard, or a guard's
- * `token_version` cannot be called. Deliberately NOT
+ * audience), a guard name does not point at a `jwt` guard, a guard's
+ * `token_version` cannot be called, or an on/off switch is not a boolean. Deliberately NOT
  * a {@see JwtException}: guards swallow token exceptions into a 401, but an
  * operator error must surface as a 500. An empty pin would otherwise verify vacuously — two apps
  * sharing a public key with unset audiences would accept each other's tokens.

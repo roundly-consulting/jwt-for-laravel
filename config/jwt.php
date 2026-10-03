@@ -28,7 +28,7 @@ return [
         'scope' => 'access',                              // required scope to authenticate
         'identity' => TokenUser::class,                   // claims-mode identity class
         'token_version' => null,                          // invokable-class|callable|null: fn(Authenticatable): int (closures break config:cache)
-        'check_denylist' => (bool) env('JWT_CHECK_DENYLIST', true),
+        'check_denylist' => env('JWT_CHECK_DENYLIST', true),
     ],
 
     // ── jti denylist ────────────────────────────────────────────────────
@@ -57,5 +57,5 @@ return [
     ],
 
     // ── Claim-based authorization ───────────────────────────────────────
-    'authorize_from_claims' => (bool) env('JWT_AUTHORIZE_FROM_CLAIMS', false),
+    'authorize_from_claims' => env('JWT_AUTHORIZE_FROM_CLAIMS', false),
 ];

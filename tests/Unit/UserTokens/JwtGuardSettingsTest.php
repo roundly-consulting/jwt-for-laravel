@@ -44,6 +44,7 @@ it('honours a per-guard option', function (string $key, mixed $value, string $pr
     'scope (enum case)' => ['scope', Scope::TwoFaPending, 'scope', '2fa_pending'],
     'check_denylist' => ['check_denylist', false, 'checkDenylist', false],
     'check_denylist (env string)' => ['check_denylist', 'false', 'checkDenylist', false],
+    'check_denylist (env "off")' => ['check_denylist', 'off', 'checkDenylist', false],
     'identity' => ['identity', CustomIdentity::class, 'identity', CustomIdentity::class],
     'token_version' => ['token_version', TokenVersionResolver::class, 'tokenVersion', TokenVersionResolver::class],
 ]);
@@ -66,10 +67,27 @@ it('falls back to the global option when the per-guard value is unusable', funct
     'blank audience' => ['audience', '  ', 'audience', 'web'],
     'null audience' => ['audience', null, 'audience', 'web'],
     'non-string scope' => ['scope', 42, 'scope', 'access'],
-    'non-boolean check_denylist' => ['check_denylist', 'maybe', 'checkDenylist', true],
     'identity not a ClaimsAuthenticatable' => ['identity', stdClass::class, 'identity', TokenUser::class],
     'blank token_version' => ['token_version', '', 'tokenVersion', null],
 ]);
+
+it('refuses a typo in a per-guard check_denylist instead of deferring to the global one (strict config)', function (mixed $junk): void {
+    expect(fn () => settingsFor(['check_denylist' => $junk]))
+        ->toThrow(JwtMisconfigured::class, 'Configuration value [auth.guards.x.check_denylist] must be a boolean');
+})->with(['maybe', 'disabled', [['on']]]);
+
+it('refuses a typo in the global check_denylist (strict config)', function (): void {
+    config(['jwt.guard.check_denylist' => 'disabled']);
+
+    expect(fn () => settingsFor([]))
+        ->toThrow(JwtMisconfigured::class, 'Configuration value [jwt.guard.check_denylist] must be a boolean (true/false, 1/0, on/off or yes/no), [disabled] given.');
+});
+
+it('reads an unset check_denylist as the shipped default, on (strict config)', function (): void {
+    config(['jwt.guard.check_denylist' => null]);
+
+    expect(settingsFor([])->checkDenylist)->toBeTrue();
+});
 
 it('normalises a global Scope case to its wire value', function (): void {
     config(['jwt.guard.scope' => Scope::EmailVerify]);

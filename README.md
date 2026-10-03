@@ -112,7 +112,7 @@ verification once the keys/secret are set. Every key and its backing env var:
 | `guard.scope` | — | `access` | Scope required to authenticate the `jwt` guard |
 | `guard.identity` | — | `TokenUser::class` | Claims-mode identity class |
 | `guard.token_version` | — | `null` | `callable|invokable-class|null` returning the user's current version |
-| `guard.check_denylist` | `JWT_CHECK_DENYLIST` | `true` | Enforce the jti denylist |
+| `guard.check_denylist` | `JWT_CHECK_DENYLIST` | `true` | Enforce the jti denylist (on/off switch, see below) |
 | `denylist.store` | `JWT_DENYLIST_STORE` | `redis` | Cache store backing the denylist |
 | `denylist.prefix` | `JWT_DENYLIST_PREFIX` | `jwt:denylist:` | Denylist cache-key prefix |
 | `service.secret` | `SERVICE_JWT_SECRET` | `null` | HS256 shared secret, ≥32 random bytes (`openssl rand -base64 48`) |
@@ -122,7 +122,12 @@ verification once the keys/secret are set. Every key and its backing env var:
 | `service.audience` | `JWT_SERVICE_AUDIENCE` | `null` | Default service-token `aud` |
 | `service.ttl` | `SERVICE_JWT_TTL` | `60` | Service-token lifetime (seconds) |
 | `service.issuers` | `JWT_SERVICE_ISSUERS` | `[]` (any) | Comma-separated issuer allow-list |
-| `authorize_from_claims` | `JWT_AUTHORIZE_FROM_CLAIMS` | `false` | Enable the claim-based `Gate::before` |
+| `authorize_from_claims` | `JWT_AUTHORIZE_FROM_CLAIMS` | `false` | Enable the claim-based `Gate::before` (on/off switch, see below) |
+
+The two on/off switches accept `true`/`false`, `1`/`0`, `on`/`off` and `yes`/`no`
+(case-insensitive). Unset or `null` reads as the default above; anything else — a typo such as
+`JWT_AUTHORIZE_FROM_CLAIMS=disabled` — throws `JwtMisconfigured` naming the key instead of quietly
+reading as on or off.
 
 ## Usage
 
@@ -346,7 +351,7 @@ global value:
 | `audience` | `jwt.audience` | non-empty string |
 | `scope` | `jwt.guard.scope` | string or `Scope` case |
 | `token_version` | `jwt.guard.token_version` | invokable class-string (or closure — not config-cacheable) |
-| `check_denylist` | `jwt.guard.check_denylist` | bool |
+| `check_denylist` | `jwt.guard.check_denylist` | bool (an unparseable value throws `JwtMisconfigured`, it never defers to the global one) |
 | `identity` | `jwt.guard.identity` | class-string of a `ClaimsAuthenticatable` |
 
 Mint for, verify against and read a specific guard with `Jwt::guard($name)`:

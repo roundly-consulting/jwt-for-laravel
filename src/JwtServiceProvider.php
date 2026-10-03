@@ -35,6 +35,7 @@ use RoundlyConsulting\Jwt\UserTokens\NativeUserTokenIssuer;
 use RoundlyConsulting\Jwt\UserTokens\NativeUserTokenVerifier;
 use RoundlyConsulting\PackageToolkit\Package;
 use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 
 final class JwtServiceProvider extends PackageServiceProvider
 {
@@ -56,8 +57,8 @@ final class JwtServiceProvider extends PackageServiceProvider
                 'Audience' => self::configured('jwt.audience'),
                 'Access token TTL' => self::seconds('jwt.ttl'),
                 'Service tokens' => self::serviceTokenMode(),
-                'Denylist check' => (bool) config('jwt.guard.check_denylist') ? 'ON' : 'OFF',
-                'Claim authorization' => (bool) config('jwt.authorize_from_claims') ? 'ON' : 'OFF',
+                'Denylist check' => Config::using(JwtMisconfigured::class)->boolean('jwt.guard.check_denylist', true) ? 'ON' : 'OFF',
+                'Claim authorization' => Config::using(JwtMisconfigured::class)->boolean('jwt.authorize_from_claims') ? 'ON' : 'OFF',
             ]);
     }
 
@@ -259,7 +260,8 @@ final class JwtServiceProvider extends PackageServiceProvider
 
     private function registerClaimAuthorization(): void
     {
-        if ((bool) config('jwt.authorize_from_claims') !== true) {
+        // Strict: `JWT_AUTHORIZE_FROM_CLAIMS=disabled` fails the boot rather than reading as off.
+        if (! Config::using(JwtMisconfigured::class)->boolean('jwt.authorize_from_claims')) {
             return;
         }
 
