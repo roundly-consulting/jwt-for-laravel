@@ -102,8 +102,8 @@ verification once the keys/secret are set. Every key and its backing env var:
 |---|---|---|---|
 | `private_key_path` | `JWT_PRIVATE_KEY_PATH` | `storage_path('jwt-private.key')` | RSA private key path — read only when minting (issuers) |
 | `public_key_path` | `JWT_PUBLIC_KEY_PATH` | `storage_path('jwt-public.pem')` | RSA public key path |
-| `issuer` | `JWT_ISSUER` | `null` | Pinned `iss` — **required**; empty throws `JwtMisconfigured` |
-| `audience` | `JWT_AUDIENCE` | `null` | Pinned `aud` — **required**; empty throws `JwtMisconfigured` |
+| `issuer` | `JWT_ISSUER` | `null` | Pinned `iss` — **required**; not set (null or blank) throws `JwtMisconfigured` |
+| `audience` | `JWT_AUDIENCE` | `null` | Pinned `aud` — **required**; not set (null or blank) throws `JwtMisconfigured` |
 | `ttl` | `JWT_TTL` | `900` | Access-token lifetime (seconds, ≥1) |
 | `challenge_ttl` | `JWT_CHALLENGE_TTL` | `300` | `2fa_pending` lifetime (seconds, ≥1) |
 | `verify_ttl` | `JWT_VERIFY_TTL` | `3600` | `email_verify` lifetime (seconds, ≥1) |
@@ -125,17 +125,18 @@ verification once the keys/secret are set. Every key and its backing env var:
 | `authorize_from_claims` | `JWT_AUTHORIZE_FROM_CLAIMS` | `false` | Enable the claim-based `Gate::before` (on/off switch, see below) |
 
 The two on/off switches accept `true`/`false`, `1`/`0`, `on`/`off` and `yes`/`no`
-(case-insensitive). Unset or `null` reads as the default above; anything else — a typo such as
+(case-insensitive). Not set — absent, `null` or blank (`''`, what `KEY=` in `.env` gives) — reads
+as the default above; anything else — a typo such as
 `JWT_AUTHORIZE_FROM_CLAIMS=disabled` — throws `JwtMisconfigured` naming the key instead of quietly
 reading as on or off.
 
-Every other value is read just as strictly. An absent key takes the default above. The TTLs and
-`leeway` take an int or a canonical integer string (env values arrive as strings), so `JWT_TTL=five`,
-`'1.5'` or `0` throws `JwtMisconfigured` rather than becoming a 0-second token. A non-string path,
-`kid`, store or secret, a blank `denylist.prefix`, a `service.issuers` that isn't a list of strings,
-a malformed `service.secrets` pair and a `guard.identity` that isn't a `ClaimsAuthenticatable` all
-throw too — none of them silently widens what the package accepts. A blank optional string
-(`JWT_KID=`) reads as unset.
+Every other value is read just as strictly. A key that is not set (absent, `null` or blank) takes
+the default above. The TTLs and `leeway` take an int or a canonical integer string (env values
+arrive as strings), so `JWT_TTL=five`, `'1.5'` or `0` throws `JwtMisconfigured` rather than becoming
+a 0-second token. A non-string path, `kid`, store, prefix or secret, a `service.issuers` that isn't
+a list of strings, a malformed `service.secrets` pair and a `guard.identity` that isn't a
+`ClaimsAuthenticatable` all throw too — none of them silently widens what the package accepts. A
+blank optional string (`JWT_KID=`) is not set, so it reads as unset.
 
 ## Usage
 
@@ -480,7 +481,7 @@ php artisan jwt:generate-keys --force  # overwrite existing keys
 
 Generates a 2048-bit RSA keypair at `jwt.private_key_path` / `jwt.public_key_path` (by default
 `storage/jwt-private.key` and `storage/jwt-public.pem`); the private key is written with `0600`
-permissions. It fails with a clear error if either path is set to an empty value.
+permissions. It fails with a clear error if either path is not set (`null` or blank).
 
 ## Standards-based parity
 
