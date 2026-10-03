@@ -29,9 +29,9 @@
         "illuminate/contracts": "^12.0|^13.0",
         "illuminate/http": "^12.0|^13.0",
         "illuminate/support": "^12.0|^13.0",
-        "roundly-consulting/crypto-for-laravel": "@dev",
-        "roundly-consulting/enums-for-laravel": "@dev",
-        "roundly-consulting/package-toolkit-for-laravel": "@dev"
+        "roundly-consulting/crypto-for-laravel": "^1.0",
+        "roundly-consulting/enums-for-laravel": "^1.0",
+        "roundly-consulting/package-toolkit-for-laravel": "^1.0"
     },
     "require-dev": {
         "larastan/larastan": "^3.0",
@@ -39,58 +39,8 @@
         "nunomaduro/collision": "^8.0",
         "orchestra/testbench": "^10.0|^11.0",
         "pestphp/pest": "^4.0",
-        "roundly-consulting/testing-for-laravel": "@dev"
+        "roundly-consulting/testing-for-laravel": "^1.0"
     },
-    "repositories": [
-        {
-            "type": "path",
-            "url": "../crypto-for-laravel*",
-            "options": {
-                "symlink": true
-            }
-        },
-        {
-            "type": "vcs",
-            "url": "https://github.com/roundly-consulting/crypto-for-laravel",
-            "no-api": true
-        },
-        {
-            "type": "path",
-            "url": "../enums-for-laravel*",
-            "options": {
-                "symlink": true
-            }
-        },
-        {
-            "type": "path",
-            "url": "../package-toolkit-for-laravel*",
-            "options": {
-                "symlink": true
-            }
-        },
-        {
-            "type": "path",
-            "url": "../testing-for-laravel*",
-            "options": {
-                "symlink": true
-            }
-        },
-        {
-            "type": "vcs",
-            "url": "https://github.com/roundly-consulting/enums-for-laravel",
-            "no-api": true
-        },
-        {
-            "type": "vcs",
-            "url": "https://github.com/roundly-consulting/package-toolkit-for-laravel",
-            "no-api": true
-        },
-        {
-            "type": "vcs",
-            "url": "https://github.com/roundly-consulting/testing-for-laravel",
-            "no-api": true
-        }
-    ],
     "autoload": {
         "psr-4": {
             "RoundlyConsulting\\Jwt\\": "src/"
@@ -122,7 +72,5 @@
                 "Jwt": "RoundlyConsulting\\Jwt\\Facades\\Jwt"
             }
         }
-    },
-    "minimum-stability": "dev",
-    "prefer-stable": true
+    }
 }
