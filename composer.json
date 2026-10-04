@@ -10,7 +10,7 @@
         "hs256",
         "auth"
     ],
-    "homepage": "https://github.com/roundly-consulting/jwt-for-laravel",
+    "homepage": "https://roundly-consulting.com/open-source/docs/jwt-for-laravel",
     "license": "MIT",
     "authors": [
         {
@@ -19,6 +19,9 @@
             "role": "Developer"
         }
     ],
+    "support": {
+        "docs": "https://roundly-consulting.com/open-source/docs/jwt-for-laravel"
+    },
     "require": {
         "php": "^8.4",
         "ext-json": "*",
