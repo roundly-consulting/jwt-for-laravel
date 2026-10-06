@@ -6,6 +6,8 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+## 1.1.0 - 2026-10-06
+
 ### Added
 
 - `KeyLoadFailed::unreadable($kind, $path)`: the error for a key file that exists but the PHP
@@ -19,9 +21,12 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 - `Jwt::fake()`'s in-memory denylist reads `jwt.leeway` and `jwt.denylist.prefix` exactly like the
   real binding, so a blank or null `JWT_LEEWAY` means 10 s there too. A host test that travels past
   a logged-out token's `exp` now sees it stay rejected until `exp + leeway`, as in production.
+- Maintenance: `composer.json` `homepage` and `support.docs` now point to the documentation site.
 - Documentation: `mint()` (`Jwt::mint()`, `Jwt::guard()->mint()`, `UserTokenIssuer::mint()`) does
   not bound its TTL; a ttl of 0 or below mints an already-expired token (0 still verifies within
   `jwt.leeway`).
+- Documentation: the README hero image uses an absolute URL, so it renders on Packagist and other
+  sites.
 
 ### Fixed
 
