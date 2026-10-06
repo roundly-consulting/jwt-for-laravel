@@ -267,3 +267,29 @@ it('replaces a user set through Laravel actingAs with a later fake actingAs', fu
 
     $this->getJson('/me')->assertOk()->assertExactJson(['sub' => 'set-by-fake']);
 });
+
+/*
+ * `JWT_TTL` reaches config as a string. The real issuer reads it through
+ * Settings::integer; actingAs() accepted only an int and minted a 900 s token.
+ */
+it('follows jwt.ttl in actingAs exactly like the real issuer', function (mixed $ttl, int $lifetime): void {
+    CarbonImmutable::setTestNow(CarbonImmutable::createFromTimestamp(1_700_000_000));
+
+    try {
+        config(['jwt.ttl' => $ttl]);
+        $fake = Jwt::fake();
+
+        $acting = $fake->actingAs(['sub' => 'u1'], 'api');
+        $minted = Jwt::mintAccessToken(AccessTokenRequest::for('u1'));
+
+        expect($acting->expiresAt->getTimestamp())->toBe(1_700_000_000 + $lifetime)
+            ->and($minted->expiresAt->getTimestamp())->toBe(1_700_000_000 + $lifetime);
+    } finally {
+        CarbonImmutable::setTestNow();
+    }
+})->with([
+    'env string' => ['60', 60],
+    'integer' => [60, 60],
+    'blank' => ['', 900],
+    'null' => [null, 900],
+]);

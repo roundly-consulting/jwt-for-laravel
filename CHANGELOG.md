@@ -11,13 +11,11 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 - `KeyLoadFailed::unreadable($kind, $path)`: the error for a key file that exists but the PHP
   process cannot read.
 
-### Security
+### Changed
 
-- Per-issuer service tokens (`SERVICE_JWT_SECRETS`): a token whose `iss` is not in the secret map
-  is now always rejected as `InvalidSignature`, also when the issuer is on the
-  `JWT_SERVICE_ISSUERS` allow-list. Before, such a token was verified against a fixed secret that
-  is readable in the public source, so anyone could mint a service token that every `service-jwt`
-  guard accepted. The timing burn for an unknown issuer now uses a random per-instance key.
+- `Jwt::fake()->actingAs()` mints its token for `jwt.ttl` read exactly like the real issuer, so an
+  env-provided string such as `JWT_TTL=60` now gives a 60 s token instead of 900 s. A host test that
+  travels past `JWT_TTL` after `actingAs()` now sees the guard reject the token, as in production.
 
 ### Fixed
 
@@ -34,6 +32,16 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
   open never reads the new one. The command now needs write access to the key directories.
 - `jwt:generate-keys` reports an unwritable or uncreatable key directory, a read-only key file or
   a directory at a key path with its own error and `FAILURE` instead of a raw `ErrorException`.
+- `Jwt::fake()->actingAs()` no longer ignores a string `jwt.ttl` (it minted 900 s tokens while the
+  real issuer used the configured lifetime).
+
+### Security
+
+- Per-issuer service tokens (`SERVICE_JWT_SECRETS`): a token whose `iss` is not in the secret map
+  is now always rejected as `InvalidSignature`, also when the issuer is on the
+  `JWT_SERVICE_ISSUERS` allow-list. Before, such a token was verified against a fixed secret that
+  is readable in the public source, so anyone could mint a service token that every `service-jwt`
+  guard accepted. The timing burn for an unknown issuer now uses a random per-instance key.
 
 ## 1.0.0 - 2026-10-03
 

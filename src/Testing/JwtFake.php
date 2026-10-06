@@ -24,6 +24,7 @@ use RoundlyConsulting\Jwt\JwtManager;
 use RoundlyConsulting\Jwt\ServiceTokens\NativeServiceTokenService;
 use RoundlyConsulting\Jwt\ServiceTokens\Services;
 use RoundlyConsulting\Jwt\Support\KeyRepository;
+use RoundlyConsulting\Jwt\Support\Settings;
 use RoundlyConsulting\Jwt\UserTokens\AccessTokenRequest;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenIssuer;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
@@ -134,12 +135,13 @@ final class JwtFake extends JwtManager
 
         $settings = $this->guard($guard)->settings();
         $scope = isset($claims['scope']) && is_string($claims['scope']) ? $claims['scope'] : $settings->scope;
-        $ttl = $this->container->make(ConfigRepository::class)->get('jwt.ttl');
+        // The same strict read as the real issuer: an env string like '60' counts.
+        $ttl = Settings::integer('jwt.ttl', $this->container->make(ConfigRepository::class)->get('jwt.ttl'), 900, min: 1);
 
         $token = $this->container->make(UserTokenIssuer::class)->mint(
             (string) $subject,
             $scope,
-            is_int($ttl) && $ttl > 0 ? $ttl : 900,
+            $ttl,
             array_diff_key($claims, array_flip(self::REGISTERED)),
             $settings->audience,
         );
