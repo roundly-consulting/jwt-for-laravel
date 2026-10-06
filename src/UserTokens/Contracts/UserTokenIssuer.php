@@ -17,6 +17,11 @@ interface UserTokenIssuer
      * one. `$audience` overrides the configured `jwt.audience` for this token
      * (null keeps the configured one; an empty string is a misconfiguration).
      *
+     * `$ttl` is not bounded: a ttl of 0 or below mints a token that is already
+     * expired (0 still verifies within `jwt.leeway`), which is how a test builds
+     * an expired token. Every config TTL and `AccessTokenRequest::ttl()` require
+     * at least 1.
+     *
      * @param  array<string, mixed>  $extraClaims
      */
     public function mint(string $subject, Scope|string $scope, int $ttl, array $extraClaims = [], ?string $audience = null): IssuedToken;

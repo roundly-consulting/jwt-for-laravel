@@ -19,6 +19,9 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 - `Jwt::fake()`'s in-memory denylist reads `jwt.leeway` and `jwt.denylist.prefix` exactly like the
   real binding, so a blank or null `JWT_LEEWAY` means 10 s there too. A host test that travels past
   a logged-out token's `exp` now sees it stay rejected until `exp + leeway`, as in production.
+- Documentation: `mint()` (`Jwt::mint()`, `Jwt::guard()->mint()`, `UserTokenIssuer::mint()`) does
+  not bound its TTL; a ttl of 0 or below mints an already-expired token (0 still verifies within
+  `jwt.leeway`).
 
 ### Fixed
 
