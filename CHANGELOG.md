@@ -16,6 +16,9 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 - `Jwt::fake()->actingAs()` mints its token for `jwt.ttl` read exactly like the real issuer, so an
   env-provided string such as `JWT_TTL=60` now gives a 60 s token instead of 900 s. A host test that
   travels past `JWT_TTL` after `actingAs()` now sees the guard reject the token, as in production.
+- `Jwt::fake()`'s in-memory denylist reads `jwt.leeway` and `jwt.denylist.prefix` exactly like the
+  real binding, so a blank or null `JWT_LEEWAY` means 10 s there too. A host test that travels past
+  a logged-out token's `exp` now sees it stay rejected until `exp + leeway`, as in production.
 
 ### Fixed
 
@@ -34,6 +37,9 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
   a directory at a key path with its own error and `FAILURE` instead of a raw `ErrorException`.
 - `Jwt::fake()->actingAs()` no longer ignores a string `jwt.ttl` (it minted 900 s tokens while the
   real issuer used the configured lifetime).
+- `Jwt::fake()`'s denylist no longer treats a blank or null `jwt.leeway` as 0: a logged-out token's
+  denial expired at `exp` while the verifier still accepted it until `exp + 10 s`, so it
+  authenticated again under the fake.
 
 ### Security
 

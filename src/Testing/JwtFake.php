@@ -348,12 +348,13 @@ final class JwtFake extends JwtManager
         $this->container->singleton(Denylist::class, static function (Container $app) use ($cache): CacheDenylist {
             $config = $app->make(ConfigRepository::class);
 
+            // Read exactly like the provider's binding: blank means the default.
             return new CacheDenylist(
                 $cache,
                 null,
-                (string) $config->get('jwt.denylist.prefix'),
+                Settings::string('jwt.denylist.prefix', $config->get('jwt.denylist.prefix'), 'jwt:denylist:'),
                 $app->bound(Dispatcher::class) ? $app->make(Dispatcher::class) : null,
-                (int) $config->get('jwt.leeway'),
+                Settings::integer('jwt.leeway', $config->get('jwt.leeway'), 10, min: 0),
             );
         });
     }

@@ -293,3 +293,27 @@ it('follows jwt.ttl in actingAs exactly like the real issuer', function (mixed $
     'blank' => ['', 900],
     'null' => [null, 900],
 ]);
+
+/*
+ * A blank or null `jwt.leeway` means the default 10 s to the real verifier and
+ * denylist, but the fake's denylist cast it to 0: the denial expired at `exp`
+ * while the token still verified until `exp + 10`, so a logged-out token
+ * authenticated again.
+ */
+it('keeps a logged-out token rejected through the verifier leeway on the fake', function (mixed $leeway): void {
+    $this->travelTo(CarbonImmutable::createFromTimestamp(1_700_000_000));
+    config(['jwt.leeway' => $leeway]);
+    Jwt::fake();
+    Route::middleware('auth:api')->get('/me', fn () => response()->json(['sub' => auth()->id()]));
+
+    $issued = Jwt::mintAccessToken(AccessTokenRequest::for('u1')->ttl(60));
+    $this->withToken($issued->token)->getJson('/me')->assertOk();
+
+    Jwt::logout($issued);
+    $this->withToken($issued->token)->getJson('/me')->assertUnauthorized();
+
+    // Past `exp`, inside the verifier's 10 s leeway: the token still verifies,
+    // so only the denial keeps it out.
+    $this->travelTo(CarbonImmutable::createFromTimestamp(1_700_000_065));
+    $this->withToken($issued->token)->getJson('/me')->assertUnauthorized();
+})->with(['blank' => [''], 'null' => [null]]);
