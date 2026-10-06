@@ -97,6 +97,7 @@ final class KeyRepository
         }
 
         $pem = $this->read(
+            'private',
             $this->privateKeyPath,
             fn (): KeyLoadFailed => KeyLoadFailed::privateKeyMissing($this->privateKeyPath ?? ''),
         );
@@ -122,6 +123,7 @@ final class KeyRepository
         }
 
         $pem = $this->read(
+            'public',
             $this->publicKeyPath,
             fn (): KeyLoadFailed => KeyLoadFailed::publicKeyMissing($this->publicKeyPath ?? ''),
         );
@@ -138,16 +140,23 @@ final class KeyRepository
      *
      * @throws KeyLoadFailed
      */
-    private function read(string $path, callable $missing): string
+    private function read(string $kind, string $path, callable $missing): string
     {
         if (! is_file($path)) {
             throw $missing();
         }
 
-        $contents = file_get_contents($path);
+        if (! is_readable($path)) {
+            throw KeyLoadFailed::unreadable($kind, $path);
+        }
+
+        // `@`: a file that turns unreadable between the check and the read would
+        // raise a warning, which Laravel's error handler turns into an
+        // ErrorException instead of this package's KeyLoadFailed.
+        $contents = @file_get_contents($path);
 
         if ($contents === false) {
-            throw $missing();
+            throw KeyLoadFailed::unreadable($kind, $path);
         }
 
         return $contents;

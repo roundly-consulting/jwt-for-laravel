@@ -91,3 +91,30 @@ it('publishes the public key as a JWK set', function (): void {
 it('refuses to derive an in-memory public key from a public-only key', function (): void {
     KeyRepository::inMemory(RsaKey::public(publicKeyPem()));
 })->throws(KeyLoadFailed::class);
+
+// A key file that exists but this process cannot read used to raise a raw
+// `file_get_contents()` warning (an ErrorException under Laravel's handler), or
+// without a handler a KeyLoadFailed that wrongly said "not found".
+it('throws KeyLoadFailed naming the path when a key file is unreadable', function (string $file, string $method, string $kind): void {
+    $dir = sys_get_temp_dir().'/'.uniqid('jwt-unreadable-', true);
+    mkdir($dir, 0700);
+    $path = $dir.'/'.$file;
+    copy(fixturesDir().'/keys/'.$file, $path);
+    chmod($path, 0000);
+
+    try {
+        $repository = $method === 'privateKey'
+            ? new KeyRepository($path, null)
+            : new KeyRepository(null, $path);
+
+        expect(fn () => $repository->{$method}())
+            ->toThrow(KeyLoadFailed::class, "JWT {$kind} key at [{$path}] is unreadable");
+    } finally {
+        chmod($path, 0600);
+        unlink($path);
+        rmdir($dir);
+    }
+})->with([
+    'private' => ['jwt-private.pem', 'privateKey', 'private'],
+    'public' => ['jwt-public.pem', 'publicKey', 'public'],
+])->skip(fn (): bool => function_exists('posix_geteuid') && posix_geteuid() === 0, 'root reads a chmod-000 file');

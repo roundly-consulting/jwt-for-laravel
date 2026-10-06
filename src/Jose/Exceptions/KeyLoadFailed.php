@@ -22,6 +22,17 @@ final class KeyLoadFailed extends JwtException
         );
     }
 
+    /**
+     * The key file exists, but this process cannot read it — a permissions
+     * problem, not a missing key.
+     */
+    public static function unreadable(string $kind, string $path): self
+    {
+        return new self(
+            "JWT {$kind} key at [{$path}] is unreadable by this process. Grant the PHP user read access to it (keep a private key owner-only, 0600)."
+        );
+    }
+
     public static function privateKeyNotConfigured(): self
     {
         return new self(

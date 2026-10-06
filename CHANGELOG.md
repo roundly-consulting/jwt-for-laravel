@@ -6,6 +6,11 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+### Added
+
+- `KeyLoadFailed::unreadable($kind, $path)`: the error for a key file that exists but the PHP
+  process cannot read.
+
 ### Security
 
 - Per-issuer service tokens (`SERVICE_JWT_SECRETS`): a token whose `iss` is not in the secret map
@@ -19,6 +24,9 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 - `Claims::int()` rejects a whole float outside the 64-bit integer range (`INF`, `1e19`, `2^64`)
   with `ClaimMismatch` instead of wrapping it to an unrelated integer, so a `tv`, `auth_time` or
   denylist `exp` claim can no longer read as a different number. It now uses crypto's integer rules.
+- A key file that exists but cannot be read now throws `KeyLoadFailed` naming the path, instead
+  of a raw `ErrorException` from `file_get_contents()` (or, without Laravel's error handler, a
+  `KeyLoadFailed` that wrongly said the key was not found).
 
 ## 1.0.0 - 2026-10-03
 
