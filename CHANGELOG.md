@@ -27,6 +27,13 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 - A key file that exists but cannot be read now throws `KeyLoadFailed` naming the path, instead
   of a raw `ErrorException` from `file_get_contents()` (or, without Laravel's error handler, a
   `KeyLoadFailed` that wrongly said the key was not found).
+- `jwt:generate-keys` writes both keys to temp files in their own directories and renames them
+  into place only after both writes succeed. The private key is no longer briefly readable with
+  umask permissions (often `0644`) before its `chmod(0600)`; a failed `--force` run no longer
+  leaves a new private key next to the old public key; and a process holding the old private key
+  open never reads the new one. The command now needs write access to the key directories.
+- `jwt:generate-keys` reports an unwritable or uncreatable key directory, a read-only key file or
+  a directory at a key path with its own error and `FAILURE` instead of a raw `ErrorException`.
 
 ## 1.0.0 - 2026-10-03
 
