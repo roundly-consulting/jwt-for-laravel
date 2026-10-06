@@ -6,6 +6,14 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+### Security
+
+- Per-issuer service tokens (`SERVICE_JWT_SECRETS`): a token whose `iss` is not in the secret map
+  is now always rejected as `InvalidSignature`, also when the issuer is on the
+  `JWT_SERVICE_ISSUERS` allow-list. Before, such a token was verified against a fixed secret that
+  is readable in the public source, so anyone could mint a service token that every `service-jwt`
+  guard accepted. The timing burn for an unknown issuer now uses a random per-instance key.
+
 ## 1.0.0 - 2026-10-03
 
 Initial public release.

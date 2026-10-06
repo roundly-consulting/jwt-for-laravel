@@ -9,7 +9,9 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Str;
 use JsonException;
 use RoundlyConsulting\Crypto\Codec\Base64Url;
+use RoundlyConsulting\Crypto\Codec\Hex;
 use RoundlyConsulting\Crypto\Codec\InvalidEncodingException;
+use RoundlyConsulting\Crypto\Random\Bytes;
 use RoundlyConsulting\Crypto\Signature\Algorithm;
 use RoundlyConsulting\Crypto\Signature\Key\HmacSecret;
 use RoundlyConsulting\Jwt\Events\ServiceTokenIssued;
@@ -17,6 +19,7 @@ use RoundlyConsulting\Jwt\Jose\Claims;
 use RoundlyConsulting\Jwt\Jose\Decoder;
 use RoundlyConsulting\Jwt\Jose\Encoder;
 use RoundlyConsulting\Jwt\Jose\Exceptions\ClaimMismatch;
+use RoundlyConsulting\Jwt\Jose\Exceptions\InvalidSignature;
 use RoundlyConsulting\Jwt\Jose\Exceptions\JwtException;
 use RoundlyConsulting\Jwt\Jose\Exceptions\MalformedToken;
 use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenIssuer;
@@ -49,14 +52,6 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
     private const SCOPE = Scope::Service->value;
 
     /**
-     * A fixed, high-entropy secret used only to burn an HMAC verification for an
-     * unknown issuer, so a known and an unknown `iss` do identical work and fail
-     * identically ({@see InvalidSignature}) — the issuer set can't be enumerated
-     * by timing or error reason. It never signs or verifies a real token.
-     */
-    private const DUMMY_SECRET = 'jwt-for-laravel/unknown-issuer/constant-time-burn/8f3c1a9e2b';
-
-    /**
      * The claims a caller may never supply: every one of them is a statement this
      * class makes about the token, or one the PLATFORM makes about an identity —
      * not a fact the caller is entitled to assert.
@@ -76,6 +71,15 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
     ];
 
     /**
+     * A random key, drawn per instance, used only to burn an HMAC verification for
+     * an unknown issuer, so a known and an unknown `iss` do identical work and fail
+     * identically ({@see InvalidSignature}): the issuer set can't be enumerated by
+     * timing or error reason. It never leaves this object, and an unknown issuer is
+     * refused after decode() even if its signature somehow verified against it.
+     */
+    private readonly string $unknownIssuerSecret;
+
+    /**
      * @param  array<string, string>  $secrets  per-issuer secrets; empty ⇒ shared `secret` mode
      * @param  list<string>  $allowedIssuers  empty ⇒ any issuer accepted
      */
@@ -91,7 +95,9 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
         private readonly int $leeway,
         private readonly ?Dispatcher $events = null,
         #[\SensitiveParameter] private readonly array $secrets = [],
-    ) {}
+    ) {
+        $this->unknownIssuerSecret = Hex::encode(Bytes::generate(32));
+    }
 
     /**
      * @param  array<string, mixed>  $claims
@@ -157,7 +163,15 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
             throw new MalformedToken('The token exceeds the maximum permitted length.');
         }
 
-        $claims = $this->decoder->decode($jwt, $this->verificationSecret($jwt), Algorithm::HS256, $this->leeway);
+        $issuerSecret = $this->issuerSecret($jwt);
+
+        $claims = $this->decoder->decode($jwt, $issuerSecret ?? $this->hmac($this->unknownIssuerSecret), Algorithm::HS256, $this->leeway);
+
+        // An issuer absent from the per-issuer map is never accepted, whatever
+        // the signature did: the burn above only equalises the work.
+        if ($issuerSecret === null) {
+            throw new InvalidSignature(Algorithm::HS256->value.' signature verification failed.');
+        }
 
         if ($claims->get('scope') !== self::SCOPE) {
             throw new ClaimMismatch('Service token scope is not "service".');
@@ -197,9 +211,14 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
 
     /**
      * In per-issuer mode the verification secret is selected by the token's
-     * `iss`; in shared mode it is the mesh-wide secret.
+     * `iss`; in shared mode it is the mesh-wide secret. Null means an issuer
+     * absent from the per-issuer map: the caller still burns one full HMAC
+     * verification with the per-instance random key and then fails with
+     * InvalidSignature — identical work and error to a known issuer with a bad
+     * signature. Throwing here instead would leak, via timing and the error
+     * reason, which issuer names are configured.
      */
-    private function verificationSecret(string $jwt): HmacSecret
+    private function issuerSecret(string $jwt): ?HmacSecret
     {
         if ($this->secrets === []) {
             return $this->sharedSecret();
@@ -207,16 +226,7 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
 
         $secret = $this->secrets[$this->unverifiedIssuer($jwt)] ?? null;
 
-        // Unknown issuer: return a fixed dummy secret so the decoder still runs
-        // one full HMAC verification (which cannot match) and fails with
-        // InvalidSignature — identical work and error to a known issuer with a
-        // bad signature. Throwing here instead would leak, via timing and the
-        // error reason, which issuer names are configured.
-        if ($secret === null) {
-            return $this->hmac(self::DUMMY_SECRET);
-        }
-
-        return $this->hmac($secret);
+        return $secret === null ? null : $this->hmac($secret);
     }
 
     /**

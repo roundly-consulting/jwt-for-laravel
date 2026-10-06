@@ -183,6 +183,64 @@ it('rejects an unknown issuer as an invalid signature, not an enumeration oracle
     serviceService(secrets: ISSUER_SECRETS)->verify($token);
 })->throws(InvalidSignature::class);
 
+// The constant the unknown-issuer path used to burn its HMAC with. It sits in the
+// public source, so anyone could sign a token with it and pass verification.
+const OLD_UNKNOWN_ISSUER_BURN_SECRET = 'jwt-for-laravel/unknown-issuer/constant-time-burn/8f3c1a9e2b';
+
+/**
+ * @param  array<string, mixed>  $claims
+ */
+function forgedServiceToken(string $secret, array $claims = []): string
+{
+    return (new Encoder)->encode([
+        'iss' => 'attacker',
+        'aud' => 'auth',
+        'scope' => 'service',
+        'exp' => 1_700_000_300,
+        'permissions' => ['*'],
+        ...$claims,
+    ], HmacSecret::fromString($secret), Algorithm::HS256);
+}
+
+it('rejects an unknown issuer signed with the old public burn secret', function (): void {
+    $service = serviceService(secret: null, secrets: ['billing' => ISSUER_SECRETS['logger']]);
+
+    $service->verify(forgedServiceToken(OLD_UNKNOWN_ISSUER_BURN_SECRET));
+})->throws(InvalidSignature::class, 'HS256 signature verification failed.');
+
+it('rejects an allow-listed issuer that has no secret in the map', function (): void {
+    $service = serviceService(
+        secret: null,
+        allowedIssuers: ['billing', 'ghost'],
+        secrets: ['billing' => ISSUER_SECRETS['logger']],
+    );
+
+    $service->verify(forgedServiceToken(OLD_UNKNOWN_ISSUER_BURN_SECRET, ['iss' => 'ghost']));
+})->throws(InvalidSignature::class, 'HS256 signature verification failed.');
+
+it('never accepts an unknown issuer, even when its signature verifies against the burn key', function (): void {
+    $service = serviceService(secret: null, secrets: ['billing' => ISSUER_SECRETS['logger']]);
+
+    // Second layer: even a token signed with this instance's own burn key — which
+    // never leaves the object — is refused once the issuer turned out unknown.
+    $burn = (new ReflectionProperty($service, 'unknownIssuerSecret'))->getValue($service);
+
+    $service->verify(forgedServiceToken($burn));
+})->throws(InvalidSignature::class, 'HS256 signature verification failed.');
+
+it('burns an unknown issuer with a per-instance random key, never a constant', function (): void {
+    $burn = fn (NativeServiceTokenService $service): mixed => (new ReflectionProperty($service, 'unknownIssuerSecret'))->getValue($service);
+
+    $first = $burn(serviceService(secrets: ISSUER_SECRETS));
+    $second = $burn(serviceService(secrets: ISSUER_SECRETS));
+
+    expect($first)->toBeString()->toHaveLength(64)
+        ->and($second)->toBeString()->toHaveLength(64)
+        ->and($first)->not->toBe($second)
+        ->and((new ReflectionClass(NativeServiceTokenService::class))->getConstants())
+        ->not->toContain(OLD_UNKNOWN_ISSUER_BURN_SECRET);
+});
+
 it('ignores the shared secret when per-issuer secrets are configured', function (): void {
     // Signed with the shared secret while per-issuer mode is active — must fail.
     $token = (new Encoder)->encode([

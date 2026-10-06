@@ -5,8 +5,11 @@ declare(strict_types=1);
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
+use RoundlyConsulting\Crypto\Signature\Algorithm;
+use RoundlyConsulting\Crypto\Signature\Key\HmacSecret;
 use RoundlyConsulting\Jwt\Facades\Jwt;
 use RoundlyConsulting\Jwt\Jose\Claims;
+use RoundlyConsulting\Jwt\Jose\Encoder;
 use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenIssuer;
 use RoundlyConsulting\Jwt\ServiceTokens\ServiceIdentity;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenIssuer;
@@ -53,6 +56,26 @@ it('rejects a user (RS256) token at the service guard', function (): void {
     $token = app(UserTokenIssuer::class)->mint('user-1', 'access', 900)->token;
 
     $this->withToken($token)->getJson('/internal')->assertUnauthorized();
+});
+
+it('rejects an unknown issuer signed with the old public burn secret in per-issuer mode', function (): void {
+    config([
+        'jwt.service.secret' => null,
+        'jwt.service.secrets' => 'billing:per-issuer-secret-for-billing-0123456789',
+        'jwt.service.issuers' => [],
+    ]);
+
+    // HS256-signed with the constant the unknown-issuer path used to burn with,
+    // which anyone can read in the public source.
+    $forged = (new Encoder)->encode([
+        'iss' => 'attacker',
+        'aud' => 'auth',
+        'scope' => 'service',
+        'exp' => 1_700_000_300,
+        'permissions' => ['*'],
+    ], HmacSecret::fromString('jwt-for-laravel/unknown-issuer/constant-time-burn/8f3c1a9e2b'), Algorithm::HS256);
+
+    $this->withToken($forged)->getJson('/internal')->assertUnauthorized();
 });
 
 it('surfaces a missing secret as a 500, not a 401', function (): void {
