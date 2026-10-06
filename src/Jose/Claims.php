@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Jwt\Jose;
 
+use RoundlyConsulting\Crypto\Jose\ClaimMismatchException;
+use RoundlyConsulting\Crypto\Jose\Claims as CryptoClaims;
 use RoundlyConsulting\Jwt\Jose\Exceptions\ClaimMismatch;
 
 /**
@@ -57,23 +59,20 @@ final readonly class Claims
     }
 
     /**
-     * @throws ClaimMismatch when absent or not an integer.
+     * A whole float (e.g. 1.0) is accepted; a fractional one, or a whole float
+     * outside the 64-bit integer range (casting one wraps: 1e19 reads as a large
+     * negative number, INF as 0), is not. The rules are crypto's, so the two
+     * copies can't drift apart again.
+     *
+     * @throws ClaimMismatch when absent, not an integer, or outside the 64-bit integer range.
      */
     public function int(string $name): int
     {
-        $value = $this->require($name);
-
-        // JSON numbers decode to int|float; a whole float (e.g. 1.0) is fine,
-        // a fractional timestamp is not.
-        if (is_int($value)) {
-            return $value;
+        try {
+            return (new CryptoClaims($this->claims))->int($name);
+        } catch (ClaimMismatchException $e) {
+            throw new ClaimMismatch($e->getMessage(), previous: $e);
         }
-
-        if (is_float($value) && floor($value) === $value) {
-            return (int) $value;
-        }
-
-        throw new ClaimMismatch("Claim [{$name}] is not an integer.");
     }
 
     /**

@@ -14,6 +14,12 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
   is readable in the public source, so anyone could mint a service token that every `service-jwt`
   guard accepted. The timing burn for an unknown issuer now uses a random per-instance key.
 
+### Fixed
+
+- `Claims::int()` rejects a whole float outside the 64-bit integer range (`INF`, `1e19`, `2^64`)
+  with `ClaimMismatch` instead of wrapping it to an unrelated integer, so a `tv`, `auth_time` or
+  denylist `exp` claim can no longer read as a different number. It now uses crypto's integer rules.
+
 ## 1.0.0 - 2026-10-03
 
 Initial public release.
