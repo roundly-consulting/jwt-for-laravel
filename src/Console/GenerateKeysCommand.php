@@ -15,9 +15,11 @@ use RoundlyConsulting\Jwt\Support\KeyPath;
  *
  * Both keys are staged in temp files next to their targets and renamed into
  * place only once both are written: the private key is owner-only (0600) from
- * its first byte, a failed run leaves an existing pair untouched, and a key that
- * is replaced becomes a new file, so a handle held on the old one never sees the
- * new key. Every filesystem failure ends in this command's own error and FAILURE.
+ * its first byte, a failed write leaves an existing pair untouched (only a
+ * failure to move the public key into place after the private one leaves them
+ * mismatched, and the command says so), and a key that is replaced becomes a new
+ * file, so a handle held on the old one never sees the new key. Every filesystem
+ * failure ends in this command's own error and FAILURE.
  *
  * The keypair itself comes from crypto-for-laravel, so the generated key passes
  * exactly the guards the verifier applies (real RSA, ≥2048 bits, sane exponent).

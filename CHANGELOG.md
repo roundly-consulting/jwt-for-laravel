@@ -38,8 +38,10 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
   `KeyLoadFailed` that wrongly said the key was not found).
 - `jwt:generate-keys` writes both keys to temp files in their own directories and renames them
   into place only after both writes succeed. The private key is no longer briefly readable with
-  umask permissions (often `0644`) before its `chmod(0600)`; a failed `--force` run no longer
-  leaves a new private key next to the old public key; and a process holding the old private key
+  umask permissions (often `0644`) before its `chmod(0600)`; a failed `--force` write no longer
+  leaves a new private key next to the old public key (only a failure to move the public key into
+  place after the private one can, and the command then reports that the pair no longer matches);
+  and a process holding the old private key
   open never reads the new one. The command now needs write access to the key directories.
 - `jwt:generate-keys` reports an unwritable or uncreatable key directory, a read-only key file or
   a directory at a key path with its own error and `FAILURE` instead of a raw `ErrorException`.
