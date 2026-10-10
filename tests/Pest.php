@@ -52,7 +52,7 @@ function hmacSecret(string $value = 'test-hmac-secret-value-0123456789ab'): Hmac
 }
 
 /**
- * @return array{hmac_secret: string, tokens: array<string, array<string, mixed>>}
+ * @return array{hmac_secret: string, service_secrets: string, tokens: array<string, array<string, mixed>>}
  */
 function manifest(): array
 {
@@ -60,17 +60,41 @@ function manifest(): array
 }
 
 /**
- * Named datasets, one per committed static parity token.
+ * Named datasets, one per committed static parity token: all of them, or only
+ * the per-issuer (`issuer:<name>`) or only the other entries.
  *
  * @return array<string, array{0: string, 1: array<string, mixed>}>
  */
-function manifestCases(): array
+function manifestCases(?bool $perIssuer = null): array
 {
     $cases = [];
 
     foreach (manifest()['tokens'] as $file => $meta) {
-        $cases[$file] = [$file, $meta];
+        if ($perIssuer === null || str_starts_with((string) $meta['key'], 'issuer:') === $perIssuer) {
+            $cases[$file] = [$file, $meta];
+        }
     }
 
     return $cases;
+}
+
+/**
+ * The HMAC secret a manifest entry was signed with: the shared `hmac_secret`
+ * (`hmac`), or one entry of the padded `service_secrets` map (`issuer:<name>`).
+ */
+function manifestHmacSecret(string $key): HmacSecret
+{
+    if (! str_starts_with($key, 'issuer:')) {
+        return HmacSecret::fromString(manifest()['hmac_secret']);
+    }
+
+    foreach (explode(',', manifest()['service_secrets']) as $pair) {
+        [$issuer, $secret] = array_map(trim(...), explode(':', $pair, 2));
+
+        if ($issuer === substr($key, strlen('issuer:'))) {
+            return HmacSecret::fromString($secret);
+        }
+    }
+
+    throw new RuntimeException("No service secret for manifest key: {$key}");
 }
