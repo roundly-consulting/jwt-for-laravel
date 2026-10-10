@@ -6,6 +6,8 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+## 1.1.2 - 2026-10-10
+
 ### Security
 
 - A non-string `SERVICE_JWT_SECRET` / `SERVICE_JWT_SECRETS` (`jwt.service.secret` /
