@@ -37,6 +37,7 @@ use RoundlyConsulting\Jwt\UserTokens\NativeUserTokenVerifier;
 use RoundlyConsulting\PackageToolkit\Package;
 use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
 use RoundlyConsulting\PackageToolkit\Support\Config;
+use SensitiveParameter;
 
 final class JwtServiceProvider extends PackageServiceProvider
 {
@@ -353,12 +354,13 @@ final class JwtServiceProvider extends PackageServiceProvider
      * pair throws rather than being dropped: dropping every pair would quietly
      * fall back to the shared `secret`, unbinding each issuer from its own key.
      * An issuer named twice throws too, rather than letting the last pair win.
+     * The raw value is a sensitive parameter, so a trace never carries it.
      *
      * @return array<string, string>
      *
      * @throws JwtMisconfigured
      */
-    private function secretMap(mixed $value): array
+    private function secretMap(#[SensitiveParameter] mixed $value): array
     {
         $value = Settings::optionalString('jwt.service.secrets', $value);
 
@@ -367,8 +369,9 @@ final class JwtServiceProvider extends PackageServiceProvider
         }
 
         $map = [];
+        $positions = [];
 
-        foreach (explode(',', $value) as $pair) {
+        foreach (explode(',', $value) as $index => $pair) {
             // Trim both sides so `billing: s3cret` doesn't derive a different
             // HMAC key from a stray space, and a padded issuer still matches.
             [$issuer, $secret] = str_contains($pair, ':') ? array_map(trim(...), explode(':', $pair, 2)) : ['', ''];
@@ -379,10 +382,11 @@ final class JwtServiceProvider extends PackageServiceProvider
 
             // Last-wins would silently drop one secret for that issuer: a
             // rendering bug, so refuse it like any other malformed map.
-            if (array_key_exists($issuer, $map)) {
-                throw JwtMisconfigured::duplicateSecretIssuer($issuer);
+            if (array_key_exists($issuer, $positions)) {
+                throw JwtMisconfigured::duplicateSecretIssuer($issuer, $positions[$issuer], $index + 1);
             }
 
+            $positions[$issuer] = $index + 1;
             $map[$issuer] = $secret;
         }
 

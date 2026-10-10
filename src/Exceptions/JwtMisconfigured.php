@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Jwt\Exceptions;
 
 use RoundlyConsulting\Jwt\Jose\Exceptions\JwtException;
 use RuntimeException;
+use SensitiveParameter;
 
 /**
  * Raised when user-token configuration is incomplete (empty issuer or
@@ -17,6 +18,9 @@ use RuntimeException;
  */
 final class JwtMisconfigured extends RuntimeException
 {
+    /** crypto's `HmacSecret` floor for an HS256 secret (RFC 7518 §3.2). */
+    private const int MIN_SECRET_BYTES = 32;
+
     public static function missingIssuer(): self
     {
         return new self('JWT user tokens are misconfigured: JWT_ISSUER is not set.');
@@ -74,11 +78,29 @@ final class JwtMisconfigured extends RuntimeException
     }
 
     /**
-     * An issuer named twice in the per-issuer map. Names the issuer (an identifier,
-     * not key material) and never either secret.
+     * An issuer named twice in the per-issuer map, first at 1-based entry `$first`
+     * and again at `$second`. Never names a secret: the issuer is printed only when
+     * it looks like one ({@see self::looksLikeIssuer()}). A pair written
+     * `secret:issuer` puts a secret in the issuer slot, so anything else is withheld
+     * and the colliding entries are named by position instead.
      */
-    public static function duplicateSecretIssuer(string $issuer): self
+    public static function duplicateSecretIssuer(#[SensitiveParameter] string $issuer, int $first, int $second): self
     {
-        return new self("Configuration value [jwt.service.secrets] names issuer [{$issuer}] more than once, each issuer needs exactly one secret.");
+        if (self::looksLikeIssuer($issuer)) {
+            return new self("Configuration value [jwt.service.secrets] names issuer [{$issuer}] more than once, each issuer needs exactly one secret.");
+        }
+
+        return new self("Configuration value [jwt.service.secrets]: entries {$first} and {$second} name the same issuer, each issuer needs exactly one secret. The issuer is not shown as it may be a secret, check each entry is written issuer:secret.");
+    }
+
+    /**
+     * Service-name shaped (`^[A-Za-z0-9][A-Za-z0-9._-]*$`) AND under the 32 bytes
+     * crypto's `HmacSecret` demands of an HS256 secret: a value that short can
+     * never be a usable secret, so printing it leaks nothing.
+     */
+    private static function looksLikeIssuer(#[SensitiveParameter] string $issuer): bool
+    {
+        return strlen($issuer) < self::MIN_SECRET_BYTES
+            && preg_match('/\A[A-Za-z0-9][A-Za-z0-9._-]*\z/', $issuer) === 1;
     }
 }

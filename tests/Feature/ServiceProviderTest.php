@@ -5,6 +5,8 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\ServiceProvider;
+use RoundlyConsulting\Crypto\Signature\Key\HmacSecret;
+use RoundlyConsulting\Crypto\Signature\WeakKeyException;
 use RoundlyConsulting\Jwt\Denylist\CacheDenylist;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
 use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
@@ -117,6 +119,76 @@ it('refuses an issuer named twice in the per-issuer secret map (strict config)',
     'padded repeat' => ['logger:per-issuer-secret-for-logger-0123456789, geo:per-issuer-secret-for-geo-0123456789abc,  logger :per-issuer-secret-for-logger-other-01234'],
     'same secret twice' => ['logger:per-issuer-secret-for-logger-0123456789,logger:per-issuer-secret-for-logger-0123456789'],
 ]);
+
+it('still names an issuer-shaped repeat, up to one byte under the secret minimum', function (string $issuer): void {
+    config([
+        'app.service' => 'auth',
+        'jwt.service.issuer' => 'logger',
+        'jwt.service.secrets' => "logger:per-issuer-secret-for-logger-0123456789,{$issuer}:per-issuer-secret-one-0123456789abc,{$issuer}:per-issuer-secret-two-0123456789abc",
+    ]);
+
+    expect(fn () => app(NativeServiceTokenService::class))
+        ->toThrow(function (JwtMisconfigured $e) use ($issuer): void {
+            expect($e->getMessage())->toContain("names issuer [{$issuer}] more than once")
+                ->not->toContain('per-issuer-secret');
+        });
+})->with([
+    'dotted' => ['billing.v2'],
+    'underscored' => ['geo_lookup'],
+    '31 bytes' => ['orders-service.eu_west-1-node01'],
+]);
+
+it('never prints a secret-shaped repeat, naming the entry positions instead', function (): void {
+    // A dev-style ini keeps call arguments in the trace, so a secret riding a
+    // frame (not just the message) would be caught too. The secrets are looped
+    // here, not a dataset, so the test's own arguments stay out of the trace.
+    $ignoreArgs = ini_set('zend.exception_ignore_args', '0');
+
+    try {
+        foreach ([
+            'reversed-pair-secret-0123456789abcdef', // service-name shaped, secret length
+            'abcdefghijklmnopqrstuvwxyz012345', // exactly 32 bytes
+            'q1Zy+8Hk2/9pXvT0bWm4Lr7sNc3eJd6uAa5gFiYoPw1=', // base64
+        ] as $secret) {
+            // The pairs were written `secret:issuer`, and the "issuer" is a usable secret.
+            expect(HmacSecret::fromString($secret))->toBeInstanceOf(HmacSecret::class);
+
+            app()->forgetInstance(NativeServiceTokenService::class);
+            config([
+                'app.service' => 'auth',
+                'jwt.service.issuer' => 'logger',
+                'jwt.service.secrets' => "geo:per-issuer-secret-for-geo-0123456789abc,{$secret}:logger,auth:per-issuer-secret-for-auth-0123456789ab,billing:per-issuer-secret-for-billing-01234567,{$secret}:audit",
+            ]);
+
+            expect(fn () => app(NativeServiceTokenService::class))
+                ->toThrow(function (JwtMisconfigured $e) use ($secret): void {
+                    $traced = [];
+                    $args = array_column($e->getTrace(), 'args');
+                    array_walk_recursive($args, function (mixed $value) use (&$traced): void {
+                        if (is_string($value)) {
+                            $traced[] = $value;
+                        }
+                    });
+
+                    expect($e->getMessage())->toContain('jwt.service.secrets')
+                        ->toContain('entries 2 and 5 name the same issuer')
+                        ->not->toContain($secret)
+                        ->and((string) $e)->not->toContain($secret)
+                        ->and($e->getPrevious())->toBeNull()
+                        ->and(implode("\n", $traced))->not->toContain($secret);
+                });
+        }
+    } finally {
+        ini_set('zend.exception_ignore_args', (string) $ignoreArgs);
+    }
+});
+
+it('rests the issuer-shape rule on the crypto secret floor of 32 bytes', function (): void {
+    // A value under the floor can never be a usable secret, so naming it is safe.
+    // If crypto ever lowered the floor, a shorter secret could be printed.
+    expect(fn () => HmacSecret::fromString('abcdefghijklmnopqrstuvwxyz01234'))->toThrow(WeakKeyException::class)
+        ->and(HmacSecret::fromString('abcdefghijklmnopqrstuvwxyz012345'))->toBeInstanceOf(HmacSecret::class);
+});
 
 it('keeps issuers that differ only in case apart', function (): void {
     config([
