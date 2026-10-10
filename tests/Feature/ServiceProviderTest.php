@@ -97,6 +97,40 @@ it('refuses a malformed per-issuer secret pair instead of dropping it (strict co
     'trailing comma' => ['logger:per-issuer-secret-for-logger-0123456789,'],
 ]);
 
+it('refuses an issuer named twice in the per-issuer secret map (strict config)', function (string $secrets): void {
+    config([
+        'app.service' => 'auth',
+        'jwt.service.issuer' => 'logger',
+        'jwt.service.secrets' => $secrets,
+    ]);
+
+    // Last-wins would quietly drop one of the two secrets: a rendering bug that
+    // should fail at boot, naming the issuer but never echoing either secret.
+    expect(fn () => app(NativeServiceTokenService::class))
+        ->toThrow(function (JwtMisconfigured $e): void {
+            expect($e->getMessage())->toContain('jwt.service.secrets')
+                ->toContain('[logger]')
+                ->not->toContain('per-issuer-secret');
+        });
+})->with([
+    'exact repeat' => ['logger:per-issuer-secret-for-logger-0123456789,logger:per-issuer-secret-for-logger-other-01234'],
+    'padded repeat' => ['logger:per-issuer-secret-for-logger-0123456789, geo:per-issuer-secret-for-geo-0123456789abc,  logger :per-issuer-secret-for-logger-other-01234'],
+    'same secret twice' => ['logger:per-issuer-secret-for-logger-0123456789,logger:per-issuer-secret-for-logger-0123456789'],
+]);
+
+it('keeps issuers that differ only in case apart', function (): void {
+    config([
+        'app.service' => 'auth',
+        'jwt.service.issuer' => 'logger',
+        // `iss` is compared exactly, so `Logger` is another issuer, not a repeat.
+        'jwt.service.secrets' => 'logger:per-issuer-secret-for-logger-0123456789,Logger:per-issuer-secret-for-Logger-0123456789',
+    ]);
+
+    $service = app(NativeServiceTokenService::class);
+
+    expect($service->verify($service->issue('auth')->token)->string('iss'))->toBe('logger');
+});
+
 it('trims padding around per-issuer secret pairs', function (): void {
     config([
         'app.service' => 'auth',

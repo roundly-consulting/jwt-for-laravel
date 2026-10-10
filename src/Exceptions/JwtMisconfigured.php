@@ -72,4 +72,13 @@ final class JwtMisconfigured extends RuntimeException
     {
         return new self('Configuration value [jwt.service.secrets] must be a comma-separated list of issuer:secret pairs, a malformed pair was given.');
     }
+
+    /**
+     * An issuer named twice in the per-issuer map. Names the issuer (an identifier,
+     * not key material) and never either secret.
+     */
+    public static function duplicateSecretIssuer(string $issuer): self
+    {
+        return new self("Configuration value [jwt.service.secrets] names issuer [{$issuer}] more than once, each issuer needs exactly one secret.");
+    }
 }

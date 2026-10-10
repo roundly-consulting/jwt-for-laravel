@@ -352,6 +352,7 @@ final class JwtServiceProvider extends PackageServiceProvider
      * of `issuer:secret` pairs (null or blank = per-issuer mode off). A malformed
      * pair throws rather than being dropped: dropping every pair would quietly
      * fall back to the shared `secret`, unbinding each issuer from its own key.
+     * An issuer named twice throws too, rather than letting the last pair win.
      *
      * @return array<string, string>
      *
@@ -374,6 +375,12 @@ final class JwtServiceProvider extends PackageServiceProvider
 
             if ($issuer === '' || $secret === '') {
                 throw JwtMisconfigured::malformedSecretPair();
+            }
+
+            // Last-wins would silently drop one secret for that issuer: a
+            // rendering bug, so refuse it like any other malformed map.
+            if (array_key_exists($issuer, $map)) {
+                throw JwtMisconfigured::duplicateSecretIssuer($issuer);
             }
 
             $map[$issuer] = $secret;

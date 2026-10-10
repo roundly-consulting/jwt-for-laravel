@@ -6,6 +6,14 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+### Changed
+
+- `SERVICE_JWT_SECRETS` (`jwt.service.secrets`) refuses an issuer named twice: resolving the
+  service-token service throws `JwtMisconfigured`, naming the issuer but never a secret. Before,
+  the last pair won silently and the other secret was dropped. Issuers are compared after trimming
+  and case-sensitively, like the token's `iss`. A host whose map repeats an issuer now fails at
+  boot until it keeps one entry per issuer.
+
 ## 1.1.0 - 2026-10-06
 
 ### Added
