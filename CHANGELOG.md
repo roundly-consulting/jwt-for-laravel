@@ -6,6 +6,8 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+## 1.1.3 - 2026-10-11
+
 ### Security
 
 - A bearer token passed to `Jwt::verify()`, `Jwt::guard($name)->verify()`, `Jwt::services()->verify()`
