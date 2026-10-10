@@ -6,6 +6,8 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+## 1.1.1 - 2026-10-10
+
 ### Changed
 
 - `SERVICE_JWT_SECRETS` (`jwt.service.secrets`) refuses an issuer named twice: resolving the
@@ -16,6 +18,17 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
   Before, the last pair won silently and the other secret was dropped. Issuers are compared after
   trimming and case-sensitively, like the token's `iss`. A host whose map repeats an issuer now
   fails at boot until it keeps one entry per issuer.
+- Documentation: the `jwt:generate-keys` notes (the command's docblock and the 1.1.0 entry below)
+  now say that a failed run can still leave a mismatched pair when moving the public key into
+  place fails after the private key was moved, and that the command then reports it.
+
+### Security
+
+- A malformed `SERVICE_JWT_SECRETS` (`jwt.service.secrets`) no longer puts the raw map, with
+  every secret in it, into the `JwtMisconfigured` stack trace: the provider's parser now marks it
+  `#[SensitiveParameter]`. Before, wherever `zend.exception_ignore_args` is off, the trace carried
+  the whole value (so error trackers and debug pages could show it) and a logged trace its first
+  15 characters.
 
 ## 1.1.0 - 2026-10-06
 
