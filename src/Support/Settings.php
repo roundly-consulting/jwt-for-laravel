@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Jwt\Support;
 
 use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
 use RoundlyConsulting\PackageToolkit\Support\Config;
+use SensitiveParameter;
 
 /**
  * Strict readers for the package's non-boolean settings. A key that is not set —
@@ -34,7 +35,8 @@ final class Settings
 
     /**
      * An optional string: null when absent or blank (`JWT_KID=` in a .env is an
-     * empty string, not null); a value that is not a string at all throws.
+     * empty string, not null); a value that is not a string at all throws. Never
+     * for a secret — read those through {@see self::optionalSecret()}.
      *
      * @throws JwtMisconfigured
      */
@@ -46,6 +48,28 @@ final class Settings
 
         if (! is_string($value)) {
             throw JwtMisconfigured::invalidValue($key, 'a string or null', $value);
+        }
+
+        return trim($value) === '' ? null : $value;
+    }
+
+    /**
+     * A secret setting (`jwt.service.secret`, `jwt.service.secrets`), read like
+     * {@see self::optionalString()} — null when absent or blank, a string as given —
+     * but never exposed when it is not a string: the value is a sensitive
+     * parameter here and in {@see JwtMisconfigured::invalidSecretValue()}, so a
+     * trace never carries it, and the message names only its type.
+     *
+     * @throws JwtMisconfigured
+     */
+    public static function optionalSecret(string $key, #[SensitiveParameter] mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (! is_string($value)) {
+            throw JwtMisconfigured::invalidSecretValue($key, 'a string or null', $value);
         }
 
         return trim($value) === '' ? null : $value;

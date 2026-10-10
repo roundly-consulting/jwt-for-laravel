@@ -105,7 +105,7 @@ final class JwtServiceProvider extends PackageServiceProvider
             return new NativeServiceTokenService(
                 $app->make(Encoder::class),
                 $app->make(Decoder::class),
-                Settings::optionalString('jwt.service.secret', config('jwt.service.secret')),
+                Settings::optionalSecret('jwt.service.secret', config('jwt.service.secret')),
                 Settings::optionalString('jwt.service.issuer', config('jwt.service.issuer')) ?? $serviceName,
                 Settings::optionalString('jwt.service.audience', config('jwt.service.audience')),
                 Settings::integer('jwt.service.ttl', config('jwt.service.ttl'), 60, min: 1),
@@ -362,7 +362,7 @@ final class JwtServiceProvider extends PackageServiceProvider
      */
     private function secretMap(#[SensitiveParameter] mixed $value): array
     {
-        $value = Settings::optionalString('jwt.service.secrets', $value);
+        $value = Settings::optionalSecret('jwt.service.secrets', $value);
 
         if ($value === null) {
             return [];

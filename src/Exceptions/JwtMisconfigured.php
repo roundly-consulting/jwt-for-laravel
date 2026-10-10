@@ -58,8 +58,9 @@ final class JwtMisconfigured extends RuntimeException
     /**
      * A configured value of the wrong shape — named by key, so a typo fails loudly at
      * the read that would otherwise have quietly fallen back. Only non-secret keys
-     * reach here with a string (a class name, a scope, a blank prefix), so a string is
-     * echoed; anything else renders as its type.
+     * reach here (a class name, a scope, a blank prefix), so a string, int or bool is
+     * echoed; anything else renders as its type. Secret keys use
+     * {@see self::invalidSecretValue()}.
      */
     public static function invalidValue(string $key, string $expectation, mixed $value): self
     {
@@ -70,6 +71,17 @@ final class JwtMisconfigured extends RuntimeException
         };
 
         return new self("Configuration value [{$key}] must be {$expectation}, {$given} given.");
+    }
+
+    /**
+     * A secret setting of the wrong shape. Same message shape as
+     * {@see self::invalidValue()}, but the value is only ever described by its type
+     * (`array given`, `int given`) — even a scalar is withheld — and it is a
+     * sensitive parameter, so the trace never carries it either.
+     */
+    public static function invalidSecretValue(string $key, string $expectation, #[SensitiveParameter] mixed $value): self
+    {
+        return new self("Configuration value [{$key}] must be {$expectation}, ".get_debug_type($value).' given.');
     }
 
     public static function malformedSecretPair(): self

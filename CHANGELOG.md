@@ -6,6 +6,17 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+### Security
+
+- A non-string `SERVICE_JWT_SECRET` / `SERVICE_JWT_SECRETS` (`jwt.service.secret` /
+  `jwt.service.secrets`) written into a published config file, such as an array or an int, no
+  longer reaches the `JwtMisconfigured` stack trace or message. Both settings now go through a
+  dedicated reader whose value is `#[SensitiveParameter]`, and the message names only the type
+  ("must be a string or null, array given"). Before, wherever `zend.exception_ignore_args` is
+  off, two frames carried the raw value (so error trackers and debug pages could show it), and
+  an int secret was printed in the message itself. Which values are accepted, and the exception
+  class, are unchanged.
+
 ## 1.1.1 - 2026-10-10
 
 ### Changed

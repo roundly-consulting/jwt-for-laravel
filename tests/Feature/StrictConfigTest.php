@@ -176,6 +176,87 @@ it('refuses a mistyped string or list setting instead of using the default (stri
     'service secret not a string' => ['jwt.service.secret', 123, NativeServiceTokenService::class],
 ]);
 
+/**
+ * Regression (1.1.1 follow-up): a published config file can hold any PHP value,
+ * and a non-string secret setting reached the strict reader and its exception
+ * factory as a plain argument. Wherever `zend.exception_ignore_args` is off the
+ * trace then carried the raw value (error trackers and debug pages show frame
+ * arguments), and an int secret was even echoed in the message. The cases are
+ * looped, not a dataset, so the test's own arguments stay out of the trace.
+ */
+it('keeps a non-string secret setting out of the message and the trace (strict config)', function (): void {
+    $canary = 'leak-canary-secret-0123456789abcdefghijklmnopqrstuv';
+    $number = 4815162342424242;
+
+    $cases = [
+        ['jwt.service.secrets', ['billing' => $canary], 'array', 'leak-canary'],
+        ['jwt.service.secrets', ["billing:{$canary}"], 'array', 'leak-canary'],
+        ['jwt.service.secrets', $number, 'int', (string) $number],
+        ['jwt.service.secret', [$canary], 'array', 'leak-canary'],
+        ['jwt.service.secret', ['primary' => ['nested' => $canary]], 'array', 'leak-canary'],
+        ['jwt.service.secret', $number, 'int', (string) $number],
+    ];
+
+    // Everything a renderer or error tracker can show: the message, the string
+    // forms, and every scalar among the frames' arguments — for the whole chain.
+    // An object argument renders as its class name, a SensitiveParameterValue too.
+    $exposed = static function (Throwable $e): string {
+        $seen = [];
+        $collect = static function (mixed $value) use (&$collect, &$seen): void {
+            if (is_array($value)) {
+                foreach ($value as $index => $item) {
+                    $seen[] = (string) $index;
+                    $collect($item);
+                }
+            } elseif (is_scalar($value)) {
+                $seen[] = (string) $value;
+            }
+        };
+
+        for ($current = $e; $current !== null; $current = $current->getPrevious()) {
+            $seen[] = $current->getMessage();
+            $seen[] = $current->getTraceAsString();
+            $seen[] = (string) $current;
+
+            foreach ($current->getTrace() as $frame) {
+                $collect($frame['args'] ?? []);
+            }
+        }
+
+        return implode("\n", $seen);
+    };
+
+    // A dev-style ini: call arguments kept in the trace, strings not cut at 15 bytes.
+    $ignoreArgs = ini_set('zend.exception_ignore_args', '0');
+    $maxLength = ini_set('zend.exception_string_param_max_len', '1000000');
+
+    try {
+        foreach ($cases as [$key, $value, $type, $marker]) {
+            app()->forgetInstance(NativeServiceTokenService::class);
+            config(['jwt.service.secret' => null, 'jwt.service.secrets' => null, $key => $value]);
+
+            expect(fn () => app(NativeServiceTokenService::class))
+                ->toThrow(function (JwtMisconfigured $e) use ($key, $type, $marker, $exposed): void {
+                    expect($e->getMessage())->toBe("Configuration value [{$key}] must be a string or null, {$type} given.")
+                        // The key is a frame argument too: proves the trace kept its arguments.
+                        ->and($exposed($e))->toContain("\n{$key}\n")->not->toContain($marker);
+                });
+        }
+    } finally {
+        ini_set('zend.exception_ignore_args', (string) $ignoreArgs);
+        ini_set('zend.exception_string_param_max_len', (string) $maxLength);
+    }
+});
+
+it('reads a secret setting like an optional string (strict config)', function (): void {
+    expect(Settings::optionalSecret('jwt.service.secret', null))->toBeNull()
+        ->and(Settings::optionalSecret('jwt.service.secret', ' '))->toBeNull()
+        // Never trimmed: a secret keeps every character.
+        ->and(Settings::optionalSecret('jwt.service.secret', ' padded-secret '))->toBe(' padded-secret ')
+        ->and(fn () => Settings::optionalSecret('jwt.service.secret', true))
+        ->toThrow(JwtMisconfigured::class, 'Configuration value [jwt.service.secret] must be a string or null, bool given.');
+});
+
 it('reads a blank string or list setting as not set, so the default applies (strict config)', function (): void {
     expect(Settings::string('jwt.denylist.prefix', '', 'jwt:denylist:'))->toBe('jwt:denylist:')
         ->and(Settings::string('jwt.denylist.prefix', '  ', 'jwt:denylist:'))->toBe('jwt:denylist:')
