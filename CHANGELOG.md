@@ -6,6 +6,17 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+### Security
+
+- A bearer token passed to `Jwt::verify()`, `Jwt::guard($name)->verify()`, `Jwt::services()->verify()`
+  or the `jwt` / `service-jwt` guards' `validate()` no longer sits in the stack frames of an
+  exception thrown while verifying it. The token parameter is now `#[SensitiveParameter]` along the
+  whole verify path: the manager, `GuardTokens`, `Services`, the `UserTokenVerifier` /
+  `ServiceTokenVerifier` contracts and their native implementations, and the `Decoder`. Before,
+  wherever `zend.exception_ignore_args` is off, those frames carried the raw token, so error
+  trackers that collect frame arguments could show it. A host implementing either contract should
+  mark its own `verify()` parameter too.
+
 ## 1.1.2 - 2026-10-10
 
 ### Security

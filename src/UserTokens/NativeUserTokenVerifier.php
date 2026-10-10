@@ -11,6 +11,7 @@ use RoundlyConsulting\Jwt\Jose\Decoder;
 use RoundlyConsulting\Jwt\Jose\Exceptions\ClaimMismatch;
 use RoundlyConsulting\Jwt\Support\KeyRepository;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
+use SensitiveParameter;
 
 /**
  * Verifies RS256 user tokens offline with the configured public key, strictly
@@ -41,7 +42,7 @@ final class NativeUserTokenVerifier implements UserTokenVerifier
         }
     }
 
-    public function verify(string $jwt, ?string $audience = null): Claims
+    public function verify(#[SensitiveParameter] string $jwt, ?string $audience = null): Claims
     {
         if ($audience === '') {
             throw JwtMisconfigured::missingAudience();

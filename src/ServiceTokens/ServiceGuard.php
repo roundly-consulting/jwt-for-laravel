@@ -12,6 +12,7 @@ use RoundlyConsulting\Jwt\Jose\Claims;
 use RoundlyConsulting\Jwt\Jose\Exceptions\JwtException;
 use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenVerifier;
 use RoundlyConsulting\Jwt\ServiceTokens\Exceptions\ServiceAuthMisconfigured;
+use SensitiveParameter;
 
 /**
  * The `service-jwt` guard driver: authenticates an internal caller from its
@@ -74,7 +75,7 @@ final class ServiceGuard implements Guard
     /**
      * @param  array<string, mixed>  $credentials
      */
-    public function validate(array $credentials = []): bool
+    public function validate(#[SensitiveParameter] array $credentials = []): bool
     {
         $token = $credentials['token'] ?? null;
 

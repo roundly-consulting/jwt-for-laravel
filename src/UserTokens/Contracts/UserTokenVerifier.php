@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Jwt\UserTokens\Contracts;
 
 use RoundlyConsulting\Jwt\Jose\Claims;
+use SensitiveParameter;
 
 interface UserTokenVerifier
 {
@@ -13,5 +14,5 @@ interface UserTokenVerifier
      * its claims. `$audience` pins a specific audience for this call (null
      * keeps the configured `jwt.audience`; an empty string is a misconfiguration).
      */
-    public function verify(string $jwt, ?string $audience = null): Claims;
+    public function verify(#[SensitiveParameter] string $jwt, ?string $audience = null): Claims;
 }

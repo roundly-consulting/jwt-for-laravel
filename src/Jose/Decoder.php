@@ -28,6 +28,7 @@ use RoundlyConsulting\Jwt\Jose\Exceptions\TokenExpired;
 use RoundlyConsulting\Jwt\Jose\Exceptions\TokenNotYetValid;
 use RoundlyConsulting\Jwt\Jose\Exceptions\UnexpectedCriticalHeader;
 use RoundlyConsulting\Jwt\Jose\Exceptions\UnexpectedTokenType;
+use SensitiveParameter;
 
 /**
  * Verifies a compact JWS and returns its {@see Claims} — the security-critical
@@ -63,7 +64,7 @@ final readonly class Decoder
     /**
      * @throws AlgorithmMismatch|MalformedToken|InvalidSignature|TokenExpired|TokenNotYetValid|UnexpectedCriticalHeader|UnexpectedTokenType|ClaimMismatch
      */
-    public function decode(string $jwt, RsaKey|HmacSecret $key, Algorithm $expected, int $leeway): Claims
+    public function decode(#[SensitiveParameter] string $jwt, RsaKey|HmacSecret $key, Algorithm $expected, int $leeway): Claims
     {
         $verifier = $this->verifier($key, $expected);
 
@@ -102,7 +103,7 @@ final readonly class Decoder
      *
      * @throws MalformedToken|UnexpectedCriticalHeader|UnexpectedTokenType
      */
-    private function assertHeaderPolicy(string $jwt): void
+    private function assertHeaderPolicy(#[SensitiveParameter] string $jwt): void
     {
         if (strlen($jwt) > self::MAX_ENCODED_BYTES) {
             throw new MalformedToken('The token exceeds the maximum permitted length.');

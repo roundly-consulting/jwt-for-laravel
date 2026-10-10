@@ -10,6 +10,7 @@ use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
 use RoundlyConsulting\Jwt\Jose\Claims;
 use RoundlyConsulting\Jwt\Jose\Exceptions\JwtException;
 use RoundlyConsulting\Jwt\JwtManager;
+use SensitiveParameter;
 
 /**
  * One `jwt` guard — `Jwt::guard('clients')`. Mints and verifies for the guard's
@@ -59,7 +60,7 @@ final readonly class GuardTokens
      *
      * @throws JwtException
      */
-    public function verify(string $jwt): Claims
+    public function verify(#[SensitiveParameter] string $jwt): Claims
     {
         return $this->manager->verify($jwt, $this->settings->audience);
     }

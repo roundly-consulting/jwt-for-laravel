@@ -16,6 +16,7 @@ use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenVerifier;
 use RoundlyConsulting\Jwt\ServiceTokens\Exceptions\ServiceAuthMisconfigured;
 use RoundlyConsulting\Jwt\Testing\RecordingServices;
 use RoundlyConsulting\Jwt\UserTokens\IssuedToken;
+use SensitiveParameter;
 
 /**
  * HS256 machine-to-machine tokens — `Jwt::services()`. Issues and verifies through
@@ -49,7 +50,7 @@ readonly class Services
      *
      * @throws JwtException|ServiceAuthMisconfigured
      */
-    public function verify(string $jwt): Claims
+    public function verify(#[SensitiveParameter] string $jwt): Claims
     {
         return $this->container->make(ServiceTokenVerifier::class)->verify($jwt);
     }

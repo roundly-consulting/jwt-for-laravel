@@ -32,6 +32,7 @@ use RoundlyConsulting\Jwt\UserTokens\JwtGuardSettings;
 use RoundlyConsulting\Jwt\UserTokens\Scope;
 use RoundlyConsulting\Jwt\UserTokens\TokenUser;
 use RoundlyConsulting\PackageToolkit\Support\Config;
+use SensitiveParameter;
 
 /**
  * The one obvious entry point behind the {@see Jwt} facade — inject it for the
@@ -88,7 +89,7 @@ class JwtManager
      *
      * @throws JwtException
      */
-    public function verify(string $jwt, ?string $audience = null): Claims
+    public function verify(#[SensitiveParameter] string $jwt, ?string $audience = null): Claims
     {
         try {
             return $this->verifier()->verify($jwt, $audience);

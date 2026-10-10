@@ -16,6 +16,7 @@ use RoundlyConsulting\Jwt\Jose\Exceptions\JwtException;
 use RoundlyConsulting\Jwt\Jose\Exceptions\KeyLoadFailed;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\ClaimsAuthenticatable;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
+use SensitiveParameter;
 
 /**
  * The `jwt` guard driver: authenticates a request from its bearer token.
@@ -98,7 +99,7 @@ final class JwtGuard implements Guard
      *
      * @param  array<string, mixed>  $credentials
      */
-    public function validate(array $credentials = []): bool
+    public function validate(#[SensitiveParameter] array $credentials = []): bool
     {
         $token = $credentials['token'] ?? null;
 
@@ -168,7 +169,7 @@ final class JwtGuard implements Guard
     /**
      * @return array{0: Authenticatable, 1: Claims}|null
      */
-    private function resolve(string $token): ?array
+    private function resolve(#[SensitiveParameter] string $token): ?array
     {
         try {
             $claims = $this->verifier->verify($token, $this->audience);

@@ -150,7 +150,7 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
         return new IssuedToken($token, $expiresAt, $jti);
     }
 
-    public function verify(string $jwt): Claims
+    public function verify(#[\SensitiveParameter] string $jwt): Claims
     {
         if ($this->serviceName === '') {
             throw ServiceAuthMisconfigured::missingServiceName();
@@ -218,7 +218,7 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
      * signature. Throwing here instead would leak, via timing and the error
      * reason, which issuer names are configured.
      */
-    private function issuerSecret(string $jwt): ?HmacSecret
+    private function issuerSecret(#[\SensitiveParameter] string $jwt): ?HmacSecret
     {
         if ($this->secrets === []) {
             return $this->sharedSecret();
@@ -235,7 +235,7 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
      * decision still happens in the {@see Decoder} with the selected secret;
      * a forged `iss` merely selects a secret its signature cannot match.
      */
-    private function unverifiedIssuer(string $jwt): string
+    private function unverifiedIssuer(#[\SensitiveParameter] string $jwt): string
     {
         $parts = explode('.', $jwt);
 
