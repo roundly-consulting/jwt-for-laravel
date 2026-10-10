@@ -16,6 +16,7 @@ use RoundlyConsulting\Jwt\UserTokens\AccessTokenRequest;
 use RoundlyConsulting\Jwt\UserTokens\GuardTokens;
 use RoundlyConsulting\Jwt\UserTokens\IssuedToken;
 use RoundlyConsulting\Jwt\UserTokens\Scope;
+use RoundlyConsulting\PackageToolkit\Concerns\RedactsSensitiveArguments;
 
 /**
  * The one-call entry point to the package.
@@ -37,6 +38,8 @@ use RoundlyConsulting\Jwt\UserTokens\Scope;
  */
 final class Jwt extends Facade
 {
+    use RedactsSensitiveArguments;
+
     /**
      * Swap the manager for a recording fake over in-memory RSA keys. Tokens are still
      * really signed and verified; every mint, service-token issue and deny is

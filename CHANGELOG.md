@@ -16,6 +16,10 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
   wherever `zend.exception_ignore_args` is off, those frames carried the raw token, so error
   trackers that collect frame arguments could show it. A host implementing either contract should
   mark its own `verify()` parameter too.
+- Flat facade calls (`Jwt::verify($jwt)`) no longer leave `#[SensitiveParameter]` arguments in the
+  facade's stack frame: the `Jwt` facade uses package-toolkit's `RedactsSensitiveArguments`, which
+  hides exactly the arguments the `JwtManager` method marks, while every other argument stays
+  visible. Requires package-toolkit `^1.3`.
 
 ## 1.1.2 - 2026-10-10
 

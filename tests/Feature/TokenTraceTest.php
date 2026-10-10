@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Auth;
 use RoundlyConsulting\Crypto\Codec\Base64Url;
+use RoundlyConsulting\Jwt\Facades\Jwt;
 use RoundlyConsulting\Jwt\Jose\Exceptions\InvalidSignature;
 use RoundlyConsulting\Jwt\Jose\Exceptions\KeyLoadFailed;
 use RoundlyConsulting\Jwt\Jose\Exceptions\MalformedToken;
@@ -97,6 +98,16 @@ it('keeps a forged user token out of every frame of the manager verify', functio
     $token = $this->forged;
 
     [$class, $frames, $redacted] = ($this->exposed)(fn () => app(JwtManager::class)->verify($token, 'web'));
+
+    expect($class)->toBe(InvalidSignature::class)
+        ->and($frames)->not->toContain($token)
+        ->and($redacted)->toBeGreaterThan(0);
+});
+
+it('keeps the token out of every frame of a facade verify', function (): void {
+    $token = $this->forged;
+
+    [$class, $frames, $redacted] = ($this->exposed)(fn () => Jwt::verify($token));
 
     expect($class)->toBe(InvalidSignature::class)
         ->and($frames)->not->toContain($token)

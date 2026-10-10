@@ -50,7 +50,8 @@ afterEach(function (): void {
 it('pins the facade contract', function (): void {
     expect(Jwt::class)
         ->toDocumentItsRoot()
-        ->toBeFakeable();
+        ->toBeFakeable()
+        ->toRedactSensitiveArguments(methods: 1);
 });
 
 it('scopes mint, verify, settings and audience to one guard', function (): void {
