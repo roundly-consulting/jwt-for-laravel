@@ -13,7 +13,6 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 use RoundlyConsulting\Jwt\Console\GenerateKeysCommand;
 use RoundlyConsulting\Jwt\Denylist\CacheDenylist;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
@@ -37,7 +36,6 @@ use RoundlyConsulting\Jwt\UserTokens\NativeUserTokenVerifier;
 use RoundlyConsulting\PackageToolkit\Package;
 use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
 use RoundlyConsulting\PackageToolkit\Support\Config;
-use SensitiveParameter;
 
 final class JwtServiceProvider extends PackageServiceProvider
 {
@@ -100,7 +98,7 @@ final class JwtServiceProvider extends PackageServiceProvider
         ));
 
         $this->app->singleton(NativeServiceTokenService::class, function (Application $app): NativeServiceTokenService {
-            $serviceName = $this->serviceName();
+            $serviceName = Settings::serviceName(config('jwt.service.name'), config('app.service'), config('app.name'));
 
             return new NativeServiceTokenService(
                 $app->make(Encoder::class),
@@ -113,7 +111,7 @@ final class JwtServiceProvider extends PackageServiceProvider
                 $serviceName,
                 Settings::integer('jwt.leeway', config('jwt.leeway'), 10, min: 0),
                 $this->dispatcher($app),
-                $this->secretMap(config('jwt.service.secrets')),
+                Settings::secretMap(config('jwt.service.secrets')),
             );
         });
 
@@ -319,77 +317,11 @@ final class JwtServiceProvider extends PackageServiceProvider
     }
 
     /**
-     * This service's own name — the `aud` inbound service tokens must carry, and
-     * the default `iss` of the ones it mints: `jwt.service.name`, else a host's
-     * `app.service` (not a stock Laravel key, but services that define it keep
-     * their identity), else a slug of `app.name`. '' when none can be derived, so
-     * verification fails closed instead of pinning nothing. A `jwt.service.name`
-     * that is not a string throws rather than silently re-pinning to `app.name`.
-     */
-    private function serviceName(): string
-    {
-        foreach ([Settings::optionalString('jwt.service.name', config('jwt.service.name')), config('app.service')] as $value) {
-            if (is_string($value) && trim($value) !== '') {
-                return trim($value);
-            }
-        }
-
-        $appName = config('app.name');
-
-        return is_string($appName) ? Str::slug($appName) : '';
-    }
-
-    /**
      * A configured key path, anchored to the application root when relative, so
      * key loading never depends on the process's working directory.
      */
     private function resolvedKeyPath(?string $path): ?string
     {
         return $path === null ? null : KeyPath::resolve($path, $this->app->basePath());
-    }
-
-    /**
-     * Parses the `SERVICE_JWT_SECRETS` per-issuer map: a comma-separated list
-     * of `issuer:secret` pairs (null or blank = per-issuer mode off). A malformed
-     * pair throws rather than being dropped: dropping every pair would quietly
-     * fall back to the shared `secret`, unbinding each issuer from its own key.
-     * An issuer named twice throws too, rather than letting the last pair win.
-     * The raw value is a sensitive parameter, so a trace never carries it.
-     *
-     * @return array<string, string>
-     *
-     * @throws JwtMisconfigured
-     */
-    private function secretMap(#[SensitiveParameter] mixed $value): array
-    {
-        $value = Settings::optionalSecret('jwt.service.secrets', $value);
-
-        if ($value === null) {
-            return [];
-        }
-
-        $map = [];
-        $positions = [];
-
-        foreach (explode(',', $value) as $index => $pair) {
-            // Trim both sides so `billing: s3cret` doesn't derive a different
-            // HMAC key from a stray space, and a padded issuer still matches.
-            [$issuer, $secret] = str_contains($pair, ':') ? array_map(trim(...), explode(':', $pair, 2)) : ['', ''];
-
-            if ($issuer === '' || $secret === '') {
-                throw JwtMisconfigured::malformedSecretPair();
-            }
-
-            // Last-wins would silently drop one secret for that issuer: a
-            // rendering bug, so refuse it like any other malformed map.
-            if (array_key_exists($issuer, $positions)) {
-                throw JwtMisconfigured::duplicateSecretIssuer($issuer, $positions[$issuer], $index + 1);
-            }
-
-            $positions[$issuer] = $index + 1;
-            $map[$issuer] = $secret;
-        }
-
-        return $map;
     }
 }

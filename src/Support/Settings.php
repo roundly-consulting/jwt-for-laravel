@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Jwt\Support;
 
+use Illuminate\Support\Str;
 use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 use SensitiveParameter;
@@ -124,6 +125,72 @@ final class Settings
         }
 
         return $strings;
+    }
+
+    /**
+     * This service's own name — the `aud` inbound service tokens must carry, and
+     * the default `iss` of the ones it mints: `jwt.service.name`, else a host's
+     * `app.service` (not a stock Laravel key, but services that define it keep
+     * their identity), else a slug of `app.name`. '' when none can be derived, so
+     * verification fails closed instead of pinning nothing. A `jwt.service.name`
+     * that is not a string throws rather than silently re-pinning to `app.name`.
+     *
+     * @throws JwtMisconfigured
+     */
+    public static function serviceName(mixed $name, mixed $appService, mixed $appName): string
+    {
+        foreach ([self::optionalString('jwt.service.name', $name), $appService] as $value) {
+            if (is_string($value) && trim($value) !== '') {
+                return trim($value);
+            }
+        }
+
+        return is_string($appName) ? Str::slug($appName) : '';
+    }
+
+    /**
+     * Parses the `SERVICE_JWT_SECRETS` per-issuer map: a comma-separated list
+     * of `issuer:secret` pairs (null or blank = per-issuer mode off). A malformed
+     * pair throws rather than being dropped: dropping every pair would quietly
+     * fall back to the shared `secret`, unbinding each issuer from its own key.
+     * An issuer named twice throws too, rather than letting the last pair win.
+     * The raw value is a sensitive parameter, so a trace never carries it.
+     *
+     * @return array<string, string>
+     *
+     * @throws JwtMisconfigured
+     */
+    public static function secretMap(#[SensitiveParameter] mixed $value): array
+    {
+        $value = self::optionalSecret('jwt.service.secrets', $value);
+
+        if ($value === null) {
+            return [];
+        }
+
+        $map = [];
+        $positions = [];
+
+        foreach (explode(',', $value) as $index => $pair) {
+            // Trim both sides so `billing: s3cret` doesn't derive a different
+            // HMAC key from a stray space, and a padded issuer still matches.
+            [$issuer, $secret] = str_contains($pair, ':') ? array_map(trim(...), explode(':', $pair, 2)) : ['', ''];
+
+            if ($issuer === '' || $secret === '') {
+                throw JwtMisconfigured::malformedSecretPair();
+            }
+
+            // Last-wins would silently drop one secret for that issuer: a
+            // rendering bug, so refuse it like any other malformed map.
+            if (array_key_exists($issuer, $positions)) {
+                throw JwtMisconfigured::duplicateSecretIssuer($issuer, $positions[$issuer], $index + 1);
+            }
+
+            $positions[$issuer] = $index + 1;
+            $map[$issuer] = $secret;
+        }
+
+        return $map;
     }
 
     /**
