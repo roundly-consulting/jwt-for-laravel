@@ -20,8 +20,12 @@ use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
 use RoundlyConsulting\Jwt\Denylist\CacheDenylist;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
 use RoundlyConsulting\Jwt\Jose\Claims;
+use RoundlyConsulting\Jwt\Jose\Decoder;
+use RoundlyConsulting\Jwt\Jose\Encoder;
 use RoundlyConsulting\Jwt\JwtManager;
+use RoundlyConsulting\Jwt\ServiceTokens\Exceptions\ServiceAuthMisconfigured;
 use RoundlyConsulting\Jwt\ServiceTokens\NativeServiceTokenService;
+use RoundlyConsulting\Jwt\ServiceTokens\ServiceGuard;
 use RoundlyConsulting\Jwt\ServiceTokens\Services;
 use RoundlyConsulting\Jwt\Support\KeyRepository;
 use RoundlyConsulting\Jwt\Support\Settings;
@@ -44,8 +48,9 @@ use RoundlyConsulting\Jwt\UserTokens\Scope;
  * issue and deny is recorded for the `assert*()` helpers, whether it came through
  * the facade, an injected manager, `guard()`, `services()` or `denylist()`.
  *
- * `actingAs()` authenticates a `jwt` guard for the rest of the test without the
- * test building a token by hand.
+ * `actingAs()` authenticates a `jwt` guard — and `actingAsService()` the
+ * `service-jwt` guards, as a call from another service — for the rest of the
+ * test without the test building a token by hand; `forgetActing()` undoes both.
  */
 final class JwtFake extends JwtManager
 {
@@ -67,6 +72,9 @@ final class JwtFake extends JwtManager
 
     /** @var list<string> bearer headers `actingAs()` attached, so a later call may replace them */
     private array $attached = [];
+
+    /** @var list<string> guards `actingAs()` / `actingAsService()` authenticated, which `forgetActing()` resets */
+    private array $actingGuards = [];
 
     private bool $listening = false;
 
@@ -149,18 +157,91 @@ final class JwtFake extends JwtManager
         $this->acting = $token->token;
         $this->attachActingToken();
 
-        $auth = $this->container->make(AuthFactory::class);
-        $auth->shouldUse($guard);
+        $this->container->make(AuthFactory::class)->shouldUse($guard);
 
         // A user set earlier (Laravel's `actingAs($user, $guard)`) would otherwise
         // outrank the bearer this call attaches.
-        $instance = $auth->guard($guard);
-
-        if ($instance instanceof JwtGuard) {
-            $instance->forgetUser();
-        }
+        $this->actOn([$guard]);
 
         return $token;
+    }
+
+    /**
+     * Authenticate every `service-jwt` guard as a call from ANOTHER service for the
+     * rest of the test: a real HS256 service token from `$issuer` is minted for this
+     * service's own name (the `aud` the service guard pins) and sent exactly like
+     * `actingAs()`'s bearer — the later of the two calls wins. It is signed the way
+     * that issuer signs: with its own secret when the `jwt.service.secrets` map
+     * names it, else with the shared `jwt.service.secret`.
+     *
+     * The guard still decides, as in production: an issuer off `jwt.service.issuers`,
+     * one the per-issuer map does not name, or a foreign `$audience` is rejected.
+     * The app's own service-token issuer is left alone — its outbound calls still
+     * claim this service's name — and this token is neither recorded as an outbound
+     * issue nor announced with `ServiceTokenIssued`. `$claims` adds custom claims; a
+     * registered one is refused, like `Jwt::services()->issue()`. Returns the token.
+     *
+     * @param  array<string, mixed>  $claims
+     *
+     * @throws ServiceAuthMisconfigured
+     */
+    public function actingAsService(string $issuer, array $claims = [], ?string $audience = null): IssuedToken
+    {
+        $config = $this->container->make(ConfigRepository::class);
+        $serviceName = Settings::serviceName($config->get('jwt.service.name'), $config->get('app.service'), $config->get('app.name'));
+        $own = Settings::secretMap($config->get('jwt.service.secrets'))[$issuer] ?? null;
+
+        // A one-off issuer under the foreign name, read like the provider's; the
+        // container's issuer keeps the name it was built with.
+        $issuerService = new NativeServiceTokenService(
+            $this->container->make(Encoder::class),
+            $this->container->make(Decoder::class),
+            // No verifier here holds a secret for an issuer the per-issuer map leaves
+            // out, so a throwaway one earns it the 401 a real stranger gets.
+            $own === null ? Settings::optionalSecret('jwt.service.secret', $config->get('jwt.service.secret')) ?? Token::urlSafe(64) : null,
+            $issuer,
+            $audience ?? $serviceName,
+            Settings::integer('jwt.service.ttl', $config->get('jwt.service.ttl'), 60, min: 1),
+            [],
+            $serviceName,
+            Settings::integer('jwt.leeway', $config->get('jwt.leeway'), 10, min: 0),
+            null,
+            $own === null ? [] : [$issuer => $own],
+        );
+
+        $token = $issuerService->issue(null, $claims);
+
+        $this->acting = $token->token;
+        $this->attachActingToken();
+
+        // A caller set earlier (Laravel's `actingAs($identity, 'service')`) would
+        // otherwise outrank the bearer this call attaches.
+        $this->actOn($this->serviceGuards());
+
+        return $token;
+    }
+
+    /**
+     * Make later requests anonymous again after `actingAs()` / `actingAsService()`:
+     * Laravel's `withoutToken()` cannot, because the fake attaches its bearer to
+     * every request that carries none. The current request loses that bearer too,
+     * and every guard the fake authenticated forgets its user. A bearer the test
+     * set itself (`withToken()`) is left alone.
+     */
+    public function forgetActing(): void
+    {
+        $this->acting = null;
+
+        $request = $this->container->bound('request') ? $this->container->make('request') : null;
+
+        if ($request instanceof Request && in_array($request->headers->get('Authorization'), $this->attached, true)) {
+            $request->headers->remove('Authorization');
+        }
+
+        $this->attached = [];
+
+        $this->forgetUsers($this->actingGuards);
+        $this->actingGuards = [];
     }
 
     /**
@@ -390,6 +471,49 @@ final class JwtFake extends JwtManager
         $bearer = 'Bearer '.$this->acting;
         $request->headers->set('Authorization', $bearer);
         $this->attached[] = $bearer;
+    }
+
+    /**
+     * @param  list<string>  $guards
+     */
+    private function actOn(array $guards): void
+    {
+        $this->forgetUsers($guards);
+        $this->actingGuards = array_values(array_unique([...$this->actingGuards, ...$guards]));
+    }
+
+    /**
+     * @param  list<string>  $guards
+     */
+    private function forgetUsers(array $guards): void
+    {
+        $auth = $this->container->make(AuthFactory::class);
+
+        foreach ($guards as $guard) {
+            $instance = $auth->guard($guard);
+
+            if ($instance instanceof JwtGuard || $instance instanceof ServiceGuard) {
+                $instance->forgetUser();
+            }
+        }
+    }
+
+    /**
+     * Every configured guard using the `service-jwt` driver.
+     *
+     * @return list<string>
+     */
+    private function serviceGuards(): array
+    {
+        $guards = [];
+
+        foreach ((array) $this->container->make(ConfigRepository::class)->get('auth.guards', []) as $name => $options) {
+            if (is_string($name) && is_array($options) && ($options['driver'] ?? null) === 'service-jwt') {
+                $guards[] = $name;
+            }
+        }
+
+        return $guards;
     }
 
     private function filled(mixed $value): bool

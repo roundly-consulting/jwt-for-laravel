@@ -7,12 +7,18 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\ExpectationFailedException;
+use RoundlyConsulting\Crypto\Signature\Algorithm;
+use RoundlyConsulting\Crypto\Signature\Key\HmacSecret;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
+use RoundlyConsulting\Jwt\Events\ServiceTokenIssued;
 use RoundlyConsulting\Jwt\Events\TokenDenied;
 use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
 use RoundlyConsulting\Jwt\Facades\Jwt;
 use RoundlyConsulting\Jwt\Jose\Claims;
+use RoundlyConsulting\Jwt\Jose\Decoder;
 use RoundlyConsulting\Jwt\JwtManager;
+use RoundlyConsulting\Jwt\ServiceTokens\Exceptions\ServiceAuthMisconfigured;
+use RoundlyConsulting\Jwt\ServiceTokens\ServiceIdentity;
 use RoundlyConsulting\Jwt\Testing\JwtFake;
 use RoundlyConsulting\Jwt\Testing\RecordedToken;
 use RoundlyConsulting\Jwt\UserTokens\AccessTokenRequest;
@@ -317,3 +323,146 @@ it('keeps a logged-out token rejected through the verifier leeway on the fake', 
     $this->travelTo(CarbonImmutable::createFromTimestamp(1_700_000_065));
     $this->withToken($issued->token)->getJson('/me')->assertUnauthorized();
 })->with(['blank' => [''], 'null' => [null]]);
+
+/*
+ * The fake re-attaches its bearer to every request that carries no
+ * `Authorization` header, so Laravel's `withoutToken()` could not make a later
+ * request anonymous — hosts sent `withHeader('Authorization', '')` instead.
+ */
+it('makes later requests anonymous again with forgetActing', function (): void {
+    $fake = Jwt::fake();
+    Route::middleware('auth:api')->get('/me', fn () => response()->json(['sub' => auth()->id()]));
+
+    $fake->actingAs(['sub' => 'user-1'], 'api');
+    $this->getJson('/me')->assertOk()->assertExactJson(['sub' => 'user-1']);
+
+    $fake->forgetActing();
+
+    expect(request()->headers->get('Authorization'))->toBeNull()
+        ->and(auth('api')->user())->toBeNull();
+
+    $this->getJson('/me')->assertUnauthorized();
+    $this->getJson('/me')->assertUnauthorized();
+
+    $own = Jwt::mintAccessToken(AccessTokenRequest::for('user-2'))->token;
+    $this->withToken($own)->getJson('/me')->assertOk()->assertExactJson(['sub' => 'user-2']);
+});
+
+it('leaves a bearer the test set itself alone in forgetActing', function (): void {
+    $fake = Jwt::fake();
+    $fake->actingAs(['sub' => 'user-1'], 'api');
+
+    request()->headers->set('Authorization', 'Bearer set-by-the-test');
+    $fake->forgetActing();
+
+    expect(request()->headers->get('Authorization'))->toBe('Bearer set-by-the-test');
+});
+
+describe('actingAsService', function (): void {
+    beforeEach(function (): void {
+        config([
+            'auth.guards.service' => ['driver' => 'service-jwt'],
+            'jwt.service.issuers' => ['cosmos-auth', 'web'],
+        ]);
+
+        Route::middleware('auth:service')->get('/internal', fn () => response()->json([
+            'iss' => auth()->id(),
+            'aud' => Jwt::services()->claims()?->get('aud'),
+            'run' => Jwt::services()->claims()?->get('run'),
+        ]));
+    });
+
+    it('authenticates the service guard as a foreign issuer', function (): void {
+        Event::fake([ServiceTokenIssued::class]);
+        $fake = Jwt::fake();
+
+        $issued = $fake->actingAsService('cosmos-auth', ['run' => 'r-1']);
+
+        $this->getJson('/internal')->assertOk()->assertExactJson(['iss' => 'cosmos-auth', 'aud' => 'web', 'run' => 'r-1']);
+        $this->getJson('/internal')->assertOk();
+
+        expect(Jwt::services()->verify($issued->token)->string('iss'))->toBe('cosmos-auth');
+
+        // An inbound caller, not an outbound issue.
+        $fake->assertNothingIssuedToServices();
+        Event::assertNotDispatched(ServiceTokenIssued::class);
+    });
+
+    it('signs with the issuer\'s own secret in per-issuer mode', function (): void {
+        config(['jwt.service.secrets' => 'cosmos-auth:per-issuer-secret-for-auth-0123456789, web:per-issuer-secret-for-web-0123456789ab']);
+        $fake = Jwt::fake();
+
+        $issued = $fake->actingAsService('cosmos-auth');
+
+        $this->getJson('/internal')->assertOk()->assertJson(['iss' => 'cosmos-auth']);
+
+        $claims = app(Decoder::class)->decode($issued->token, HmacSecret::fromString('per-issuer-secret-for-auth-0123456789'), Algorithm::HS256, 0);
+        expect($claims->string('iss'))->toBe('cosmos-auth');
+    });
+
+    it('keeps the app\'s own outbound issuer', function (): void {
+        $fake = Jwt::fake();
+
+        $before = Jwt::services()->issue('billing');
+        $fake->actingAsService('cosmos-auth');
+        $after = Jwt::services()->issue('billing');
+
+        expect($fake->serviceTokens())->toHaveCount(2)
+            ->and($fake->serviceTokens()[0]->claims->get('iss'))->toBe('web')
+            ->and($fake->serviceTokens()[1]->claims->get('iss'))->toBe('web')
+            ->and($before->token)->not->toBe($after->token);
+    });
+
+    it('is still rejected for an issuer off the allow-list or a wrong audience', function (): void {
+        $fake = Jwt::fake();
+
+        $fake->actingAsService('stranger');
+        $this->getJson('/internal')->assertUnauthorized();
+
+        $fake->actingAsService('cosmos-auth', audience: 'someone-else');
+        $this->getJson('/internal')->assertUnauthorized();
+
+        $fake->actingAsService('cosmos-auth');
+        $this->getJson('/internal')->assertOk();
+    });
+
+    it('is still rejected for an issuer the per-issuer map leaves out', function (): void {
+        config(['jwt.service.secrets' => 'web:per-issuer-secret-for-web-0123456789ab', 'jwt.service.issuers' => []]);
+        $fake = Jwt::fake();
+
+        $fake->actingAsService('cosmos-auth');
+        $this->getJson('/internal')->assertUnauthorized();
+
+        $fake->actingAsService('web');
+        $this->getJson('/internal')->assertOk()->assertJson(['iss' => 'web']);
+    });
+
+    it('refuses a registered claim, like the real issuer', function (): void {
+        expect(fn () => Jwt::fake()->actingAsService('cosmos-auth', ['aud' => 'web']))
+            ->toThrow(ServiceAuthMisconfigured::class);
+    });
+
+    it('replaces a caller set through Laravel actingAs, and an earlier actingAs', function (): void {
+        $fake = Jwt::fake();
+
+        $this->actingAs(ServiceIdentity::fromClaims(new Claims(['iss' => 'set-by-laravel'])), 'service');
+        $this->getJson('/internal')->assertOk()->assertJson(['iss' => 'set-by-laravel']);
+
+        $fake->actingAs(['sub' => 'user-1'], 'api');
+        $fake->actingAsService('cosmos-auth');
+
+        $this->getJson('/internal')->assertOk()->assertJson(['iss' => 'cosmos-auth']);
+    });
+
+    it('is cleared by forgetActing', function (): void {
+        $fake = Jwt::fake();
+
+        $fake->actingAsService('cosmos-auth');
+        $this->getJson('/internal')->assertOk();
+
+        $fake->forgetActing();
+
+        expect(auth('service')->user())->toBeNull();
+        $this->getJson('/internal')->assertUnauthorized();
+    });
+});

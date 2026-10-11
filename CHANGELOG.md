@@ -6,6 +6,19 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+### Added
+
+- `Jwt::fake()->actingAsService($issuer, $claims = [], $audience = null)`: authenticates the
+  `service-jwt` guards as a call from another service, with a real HS256 token signed the way that
+  issuer signs (its own `jwt.service.secrets` entry, else the shared secret) and addressed to this
+  service. Before, the service-token issuer kept the `jwt.service.issuer` it was built with, so a
+  test could not mint for a foreign issuer through the fake, and hosts hand-encoded the token. The
+  app's own outbound tokens keep their issuer, and the guard still rejects an issuer off
+  `jwt.service.issuers`.
+- `Jwt::fake()->forgetActing()`: makes later requests anonymous again after `actingAs()` /
+  `actingAsService()`. Laravel's `withoutToken()` could not, because the fake re-attaches its
+  bearer to every request without an `Authorization` header.
+
 ## 1.1.4 - 2026-10-11
 
 ### Changed
