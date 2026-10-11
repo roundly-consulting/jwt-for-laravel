@@ -6,6 +6,8 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+## 1.2.0 - 2026-10-11
+
 ### Added
 
 - `Jwt::fake()->actingAsService($issuer, $claims = [], $audience = null)`: authenticates the
