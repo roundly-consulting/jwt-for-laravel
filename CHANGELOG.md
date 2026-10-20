@@ -6,6 +6,11 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+### Fixed
+
+- A `token_version` resolver result that is not an int now rejects the token. It was cast to 0,
+  so a `tv: 0` token survived a bump to a version tag string or a NULL column.
+
 ### Security
 
 - The user guard only accepts a token whose `sub` equals the resolved user's identifier exactly,

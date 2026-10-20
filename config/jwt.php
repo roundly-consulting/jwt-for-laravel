@@ -30,7 +30,7 @@ return [
     // `scope`, `token_version`, `check_denylist` and `identity`; give each
     // guard its own `audience`, or one guard's tokens authenticate on another.
     // With a `provider`, the user it returns must have `sub` as its exact
-    // identifier.
+    // identifier. A `token_version` result that is not an int rejects the token.
     'guard' => [
         'scope' => 'access',                              // required scope to authenticate
         'identity' => TokenUser::class,                   // claims-mode identity class

@@ -12,6 +12,7 @@ use RoundlyConsulting\Jwt\Facades\Jwt;
 use RoundlyConsulting\Jwt\Jose\Claims;
 use RoundlyConsulting\Jwt\Support\KeyRepository;
 use RoundlyConsulting\Jwt\Tests\Fixtures\CustomIdentity;
+use RoundlyConsulting\Jwt\Tests\Fixtures\StringTokenVersionResolver;
 use RoundlyConsulting\Jwt\Tests\Fixtures\TokenVersionResolver;
 use RoundlyConsulting\Jwt\Tests\Fixtures\User;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenIssuer;
@@ -132,6 +133,46 @@ it('rejects a signed token whose tv claim is mistyped, as a 401 not a 500', func
     config(['jwt.guard.token_version' => fn () => 5]);
 
     $this->withToken(mint('access', ['tv' => 'not-an-int']))->getJson('/protected')->assertUnauthorized();
+});
+
+/*
+ * The resolver's result used to be cast with (int), so "v3", null, "0" or false all read
+ * as version 0, and a `tv: 0` token (AccessTokenRequest's default) outlived every bump.
+ */
+it('rejects the token when the token_version resolver returns a non-int', function (mixed $version): void {
+    config(['jwt.guard.token_version' => fn (): mixed => $version]);
+
+    $this->withToken(mint('access', ['tv' => 0]))->getJson('/protected')->assertUnauthorized();
+})->with([
+    '"v3"' => ['v3'],
+    'null' => [null],
+    '"0"' => ['0'],
+    'float 0.0' => [0.0],
+    'false' => [false],
+]);
+
+it('rejects the token when an invokable token_version resolver returns a non-int', function (): void {
+    config(['auth.guards.api' => ['driver' => 'jwt', 'token_version' => StringTokenVersionResolver::class]]);
+
+    $this->withToken(mint('access', ['tv' => 0]))->getJson('/protected')->assertUnauthorized();
+});
+
+it('rejects a tv 0 token for a user whose token_version column is null', function (): void {
+    config([
+        'auth.guards.api' => ['driver' => 'jwt', 'provider' => 'users'],
+        'auth.providers.users' => ['driver' => 'eloquent', 'model' => User::class],
+        'jwt.guard.token_version' => fn (User $user): ?int => $user->token_version,
+    ]);
+
+    Schema::create('users', function ($table): void {
+        $table->increments('id');
+        $table->unsignedInteger('token_version')->nullable();
+    });
+
+    $user = User::query()->create(['token_version' => null]);
+    $token = app(UserTokenIssuer::class)->mint((string) $user->id, 'access', 900, ['tv' => 0])->token;
+
+    $this->withToken($token)->getJson('/protected')->assertUnauthorized();
 });
 
 it('rejects a signed token with a malformed permissions claim, as a 401 not a 500', function (): void {

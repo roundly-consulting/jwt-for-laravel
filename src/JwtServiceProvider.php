@@ -220,7 +220,7 @@ final class JwtServiceProvider extends PackageServiceProvider
             $tokenVersion = null;
 
             if ($configured instanceof Closure) {
-                $tokenVersion = static fn (Authenticatable $user): int => (int) $configured($user);
+                $tokenVersion = $configured;
             } elseif (is_string($configured)) {
                 // Fail closed: a class-string that is missing or not invokable must not
                 // quietly disable the freshness check (a bumped version would then
@@ -231,7 +231,7 @@ final class JwtServiceProvider extends PackageServiceProvider
                     throw JwtMisconfigured::invalidTokenVersion($name);
                 }
 
-                $tokenVersion = static fn (Authenticatable $user): int => (int) $instance($user);
+                $tokenVersion = $instance(...);
             }
 
             $guard = new JwtGuard(

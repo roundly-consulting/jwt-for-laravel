@@ -54,7 +54,7 @@ final class JwtGuard implements Guard
 
     /**
      * @param  class-string<ClaimsAuthenticatable>  $identityClass
-     * @param  (Closure(Authenticatable): int)|null  $tokenVersion
+     * @param  (Closure(Authenticatable): mixed)|null  $tokenVersion  a non-int result rejects the token
      */
     public function __construct(
         private readonly UserTokenVerifier $verifier,
@@ -272,6 +272,10 @@ final class JwtGuard implements Guard
             return false;
         }
 
-        return $claims->int('tv') === ($this->tokenVersion)($user);
+        $version = ($this->tokenVersion)($user);
+
+        // Fail closed: a resolver that returns anything but an int (a version tag,
+        // a null column) cannot be compared, and casting it would read it as 0.
+        return is_int($version) && $claims->int('tv') === $version;
     }
 }
