@@ -29,6 +29,8 @@ return [
     // and `clients`), each `auth.guards.<name>` array may override `audience`,
     // `scope`, `token_version`, `check_denylist` and `identity`; give each
     // guard its own `audience`, or one guard's tokens authenticate on another.
+    // With a `provider`, the user it returns must have `sub` as its exact
+    // identifier.
     'guard' => [
         'scope' => 'access',                              // required scope to authenticate
         'identity' => TokenUser::class,                   // claims-mode identity class

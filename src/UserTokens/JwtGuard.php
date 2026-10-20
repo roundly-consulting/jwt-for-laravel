@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Jwt\UserTokens;
 
 use Closure;
+use Illuminate\Auth\EloquentUserProvider;
 use Illuminate\Auth\GuardHelpers;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\Guard;
@@ -17,13 +18,15 @@ use RoundlyConsulting\Jwt\Jose\Exceptions\KeyLoadFailed;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\ClaimsAuthenticatable;
 use RoundlyConsulting\Jwt\UserTokens\Contracts\UserTokenVerifier;
 use SensitiveParameter;
+use Stringable;
 
 /**
  * The `jwt` guard driver: authenticates a request from its bearer token.
  *
  * Pipeline: bearer → verify (RS256 + pinned iss + this guard's aud) → required scope →
- * denylist → identity (Eloquent provider when set, else the claims-mode
- * identity class) → optional `token_version` freshness. Any token failure
+ * denylist → identity (the provider's user whose identifier equals `sub`
+ * exactly when a provider is set, else the claims-mode identity class) →
+ * optional `token_version` freshness. Any token failure
  * yields a null user (a 401 at the HTTP layer); a {@see KeyLoadFailed}
  * (missing/invalid key) is rethrown so an operator error surfaces as a 500,
  * never a silent 401. The claims are re-resolved whenever the bound request
@@ -215,11 +218,48 @@ final class JwtGuard implements Guard
             return null;
         }
 
-        if ($this->provider !== null) {
-            return $this->provider->retrieveById($subject);
+        if ($this->provider === null) {
+            return ($this->identityClass)::fromClaims($claims);
         }
 
-        return ($this->identityClass)::fromClaims($claims);
+        if (! $this->subjectFitsKeyType($subject)) {
+            return null;
+        }
+
+        $user = $this->provider->retrieveById($subject);
+
+        // The database compares `sub` by its own coercion rules: MySQL finds user 1
+        // for "1abc" or "01", PostgreSQL for " 1" or "0x1", and a case-insensitive
+        // collation finds "alice" for "ALICE". Only the user whose identifier IS the
+        // subject may authenticate.
+        return $user !== null && self::identifierIs($user->getAuthIdentifier(), $subject) ? $user : null;
+    }
+
+    /**
+     * An int-keyed Eloquent model can only match a canonical integer, so anything
+     * else is refused before it reaches the query: PostgreSQL would answer "1abc"
+     * with an invalid-input error (a 500), not an empty result.
+     */
+    private function subjectFitsKeyType(string $subject): bool
+    {
+        if (! $this->provider instanceof EloquentUserProvider) {
+            return true;
+        }
+
+        $model = $this->provider->createModel();
+
+        if ($model->getAuthIdentifierName() !== $model->getKeyName()
+            || ! in_array($model->getKeyType(), ['int', 'integer'], true)) {
+            return true;
+        }
+
+        return $subject === (string) (int) $subject;
+    }
+
+    private static function identifierIs(mixed $identifier, string $subject): bool
+    {
+        return (is_int($identifier) || is_string($identifier) || $identifier instanceof Stringable)
+            && (string) $identifier === $subject;
     }
 
     private function tokenVersionMatches(Claims $claims, Authenticatable $user): bool

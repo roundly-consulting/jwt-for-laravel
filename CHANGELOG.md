@@ -6,6 +6,11 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+### Security
+
+- The user guard only accepts a token whose `sub` equals the resolved user's identifier exactly,
+  so a signed `sub` like `01` or `1abc` can no longer resolve to user 1 on MySQL.
+
 ## 1.2.0 - 2026-10-11
 
 ### Added
