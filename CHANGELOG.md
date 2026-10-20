@@ -6,8 +6,13 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+## 1.2.1 - 2026-10-20
+
 ### Changed
 
+- Upgrading: a user provider that finds users by a column other than the model's auth
+  identifier must make that column the identifier (`getAuthIdentifierName()`), or the guard now
+  rejects its tokens. A NULL `token_version` column now rejects `tv: 0` tokens.
 - Maintenance: CI runs the suite on PostgreSQL and MySQL.
 
 ### Fixed
