@@ -6,6 +6,10 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+### Changed
+
+- Maintenance: CI runs the suite on PostgreSQL and MySQL.
+
 ### Fixed
 
 - A `token_version` resolver result that is not an int now rejects the token. It was cast to 0,
