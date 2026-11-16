@@ -9,7 +9,8 @@ use RoundlyConsulting\Jwt\Jose\Claims;
 
 /**
  * The authenticated identity of a calling service, backed by its verified
- * service-token claims. The auth identifier is the calling service's `iss`.
+ * service-token claims. The auth identifier is the calling service's `iss` —
+ * never the token's `sub`, which only names what the call is about.
  */
 final class ServiceIdentity implements Authenticatable
 {
@@ -26,6 +27,17 @@ final class ServiceIdentity implements Authenticatable
     public function claims(): Claims
     {
         return $this->claims;
+    }
+
+    /**
+     * The token's `sub` (set with `Jwt::services()->issue(subject: …)`), or null
+     * when it carries none or a non-string one.
+     */
+    public function subject(): ?string
+    {
+        $subject = $this->claims->get('sub');
+
+        return is_string($subject) ? $subject : null;
     }
 
     public function getAuthIdentifierName(): string

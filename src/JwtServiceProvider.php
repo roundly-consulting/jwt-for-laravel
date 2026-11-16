@@ -46,6 +46,7 @@ final class JwtServiceProvider extends PackageServiceProvider
         $package
             ->name('jwt')
             ->hasConfigFile()
+            ->hasTranslations()
             ->hasCommands([GenerateKeysCommand::class])
             ->contributesToAbout(static fn (): array => [
                 // Booleans and algorithm names only — never key material, a
@@ -112,6 +113,7 @@ final class JwtServiceProvider extends PackageServiceProvider
                 Settings::integer('jwt.leeway', config('jwt.leeway'), 10, min: 0),
                 $this->dispatcher($app),
                 Settings::secretMap(config('jwt.service.secrets')),
+                Settings::integer('jwt.service.max_ttl', config('jwt.service.max_ttl'), 3600, min: 1),
             );
         });
 
@@ -254,10 +256,18 @@ final class JwtServiceProvider extends PackageServiceProvider
 
     private function registerServiceGuard(): void
     {
-        Auth::extend('service-jwt', static function (Application $app): ServiceGuard {
+        Auth::extend('service-jwt', static function (Application $app, string $name, array $config): ServiceGuard {
+            // Off unless asked for — per guard, else `jwt.service.check_denylist` — so a
+            // verify-only mesh never needs the denylist's cache store. The denylist is
+            // resolved only when the check is on.
+            $checkDenylist = Settings::optionalBoolean("auth.guards.{$name}.check_denylist", $config['check_denylist'] ?? null)
+                ?? Settings::optionalBoolean('jwt.service.check_denylist', config('jwt.service.check_denylist'))
+                ?? false;
+
             $guard = new ServiceGuard(
                 $app->make(ServiceTokenVerifier::class),
                 $app->make('request'),
+                $checkDenylist ? $app->make(Denylist::class) : null,
             );
 
             $app->refresh('request', $guard, 'setRequest');

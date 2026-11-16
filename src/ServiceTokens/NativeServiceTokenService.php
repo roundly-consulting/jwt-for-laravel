@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Jwt\ServiceTokens;
 
 use Carbon\CarbonImmutable;
+use DateInterval;
+use DateTimeImmutable;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Str;
 use JsonException;
@@ -22,7 +24,7 @@ use RoundlyConsulting\Jwt\Jose\Exceptions\ClaimMismatch;
 use RoundlyConsulting\Jwt\Jose\Exceptions\InvalidSignature;
 use RoundlyConsulting\Jwt\Jose\Exceptions\JwtException;
 use RoundlyConsulting\Jwt\Jose\Exceptions\MalformedToken;
-use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenIssuer;
+use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenIssuerWithOptions;
 use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenVerifier;
 use RoundlyConsulting\Jwt\ServiceTokens\Exceptions\ServiceAuthMisconfigured;
 use RoundlyConsulting\Jwt\Support\HmacSecretFactory;
@@ -47,18 +49,28 @@ use RoundlyConsulting\Jwt\UserTokens\Scope;
  *   lookup — so `iss` is cryptographically bound to its key and one leaked
  *   secret no longer impersonates every service. The map wins when non-empty.
  */
-final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceTokenVerifier
+final class NativeServiceTokenService implements ServiceTokenIssuerWithOptions, ServiceTokenVerifier
 {
     private const SCOPE = Scope::Service->value;
+
+    /**
+     * The longest `sub` a service token may carry, in bytes. A subject is an
+     * identifier (`agent-run:01J…`), not a payload; the bound keeps a caller from
+     * inflating every token toward the verifier's size limit.
+     */
+    public const int MAX_SUBJECT_BYTES = 255;
 
     /**
      * The claims a caller may never supply: every one of them is a statement this
      * class makes about the token, or one the PLATFORM makes about an identity —
      * not a fact the caller is entitled to assert.
      *
-     * `sub` is here even though a service token never carries one today: it is the
-     * obvious name a future "service acting for a user" feature reaches for, and a
-     * caller that could set it would be naming a person. The four after it are what
+     * `sub` is here although a service token may carry one: only through the
+     * explicit, validated `$subject` option of {@see issue()}, never as a raw claim,
+     * so no caller sets it by accident (e.g. by forwarding a request body). A service
+     * token's `sub` names a subject for the RECEIVING service to read; it never
+     * authenticates as a user — the `jwt` guard pins RS256 and `scope=access`, so an
+     * HS256 `scope=service` token is refused there before `sub` is read. The four after it are what
      * `TokenUser::fromClaims` reads — a token asserting its own `permissions` that
      * some consumer later hydrates into a `TokenUser` is precisely the failure this
      * guard exists to prevent.
@@ -82,6 +94,8 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
     /**
      * @param  array<string, string>  $secrets  per-issuer secrets; empty ⇒ shared `secret` mode
      * @param  list<string>  $allowedIssuers  empty ⇒ any issuer accepted
+     * @param  int  $maxTtl  the longest per-call `$ttl` {@see issue()} accepts (`jwt.service.max_ttl`);
+     *                       the configured default `$ttl` is the operator's own and not bound by it
      */
     public function __construct(
         private readonly Encoder $encoder,
@@ -95,6 +109,7 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
         private readonly int $leeway,
         private readonly ?Dispatcher $events = null,
         #[\SensitiveParameter] private readonly array $secrets = [],
+        private readonly int $maxTtl = 3600,
     ) {
         $this->unknownIssuerSecret = Hex::encode(Bytes::generate(32));
     }
@@ -102,8 +117,12 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
     /**
      * @param  array<string, mixed>  $claims
      */
-    public function issue(?string $audience = null, array $claims = []): IssuedToken
-    {
+    public function issue(
+        ?string $audience = null,
+        array $claims = [],
+        int|DateInterval|null $ttl = null,
+        ?string $subject = null,
+    ): IssuedToken {
         if ($this->issuer === '') {
             throw ServiceAuthMisconfigured::missingIssuer();
         }
@@ -116,10 +135,18 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
             throw ServiceAuthMisconfigured::missingAudience();
         }
 
+        // Per-call options are validated before the secret is touched, so a bad
+        // call fails the same way whatever the keying mode.
+        $seconds = $ttl === null ? $this->ttl : $this->ttlSeconds($ttl);
+
+        if ($subject !== null) {
+            $this->assertValidSubject($subject);
+        }
+
         $secret = $this->issuingSecret();
 
         $now = CarbonImmutable::now();
-        $expiresAt = $now->addSeconds($this->ttl);
+        $expiresAt = $now->addSeconds($seconds);
         $jti = (string) Str::uuid();
 
         // Registered claims are written LAST, so an extra claim can never move the
@@ -132,8 +159,11 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
             throw ServiceAuthMisconfigured::reservedClaims(array_values($reserved));
         }
 
+        // `sub` only through the explicit `$subject` option, after the reserved-claim
+        // check above has refused it as a raw claim.
         $claims = [
             ...$claims,
+            ...($subject === null ? [] : ['sub' => $subject]),
             'iss' => $this->issuer,
             'aud' => $audience,
             'iat' => $now->getTimestamp(),
@@ -145,7 +175,7 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
 
         $token = $this->encoder->encode($claims, $secret, Algorithm::HS256);
 
-        $this->events?->dispatch(new ServiceTokenIssued($this->issuer, $audience, $jti, $expiresAt));
+        $this->events?->dispatch(new ServiceTokenIssued($this->issuer, $audience, $jti, $expiresAt, $subject));
 
         return new IssuedToken($token, $expiresAt, $jti);
     }
@@ -192,6 +222,54 @@ final class NativeServiceTokenService implements ServiceTokenIssuer, ServiceToke
         }
 
         return $claims;
+    }
+
+    /**
+     * A per-call lifetime in whole seconds, within 1..`maxTtl`. An interval is
+     * measured from a fixed instant, so the same interval always means the same
+     * number of seconds; fractional seconds are refused rather than rounded.
+     *
+     * @throws ServiceAuthMisconfigured
+     */
+    private function ttlSeconds(int|DateInterval $ttl): int
+    {
+        if ($ttl instanceof DateInterval) {
+            if ($ttl->f !== 0.0) {
+                throw ServiceAuthMisconfigured::invalidTtl($this->maxTtl);
+            }
+
+            $ttl = (new DateTimeImmutable('@0'))->add($ttl)->getTimestamp();
+        }
+
+        if ($ttl < 1 || $ttl > $this->maxTtl) {
+            throw ServiceAuthMisconfigured::invalidTtl($this->maxTtl);
+        }
+
+        return $ttl;
+    }
+
+    /**
+     * A subject is a non-empty identifier of at most {@see MAX_SUBJECT_BYTES} bytes
+     * of valid UTF-8, with no control characters and no surrounding whitespace —
+     * `" run-1"` and `"run-1"` must never be two different subjects. The value is
+     * never echoed in the error.
+     *
+     * @throws ServiceAuthMisconfigured
+     */
+    private function assertValidSubject(string $subject): void
+    {
+        $reason = match (true) {
+            trim($subject) === '' => 'it is empty',
+            strlen($subject) > self::MAX_SUBJECT_BYTES => 'it is longer than '.self::MAX_SUBJECT_BYTES.' bytes',
+            preg_match('//u', $subject) !== 1 => 'it is not valid UTF-8',
+            preg_match('/\p{Cc}/u', $subject) === 1 => 'it contains a control character',
+            trim($subject) !== $subject => 'it has leading or trailing whitespace',
+            default => null,
+        };
+
+        if ($reason !== null) {
+            throw ServiceAuthMisconfigured::invalidSubject($reason);
+        }
     }
 
     private function issuingSecret(): HmacSecret

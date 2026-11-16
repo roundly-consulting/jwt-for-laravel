@@ -60,6 +60,13 @@ return [
         'issuer' => env('JWT_SERVICE_ISSUER', env('APP_SERVICE')), // unset ⇒ the service name
         'audience' => env('JWT_SERVICE_AUDIENCE'),
         'ttl' => env('SERVICE_JWT_TTL', 60),               // seconds (≥1)
+        // The longest per-call ttl `Jwt::services()->issue(ttl: …)` accepts (≥1).
+        // Not applied to `ttl` above, which is the operator's own default.
+        'max_ttl' => env('JWT_SERVICE_MAX_TTL', 3600),
+        // Whether `service-jwt` guards refuse a revoked (denylisted) token — and, fail
+        // closed, one with no `jti`. Off by default so a mesh that never revokes needs
+        // no denylist store; `auth.guards.<name>.check_denylist` overrides it per guard.
+        'check_denylist' => env('JWT_SERVICE_CHECK_DENYLIST', false),
         'issuers' => array_values(array_filter(array_map('trim', explode(',', (string) env('JWT_SERVICE_ISSUERS', ''))))), // allow-list; empty ⇒ any
     ],
 

@@ -8,6 +8,8 @@ use Illuminate\Auth\GuardHelpers;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\Guard;
 use Illuminate\Http\Request;
+use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
+use RoundlyConsulting\Jwt\Denylist\RevocationCheck;
 use RoundlyConsulting\Jwt\Jose\Claims;
 use RoundlyConsulting\Jwt\Jose\Exceptions\JwtException;
 use RoundlyConsulting\Jwt\ServiceTokens\Contracts\ServiceTokenVerifier;
@@ -25,6 +27,10 @@ use SensitiveParameter;
  * An identity handed to {@see setUser()} (Laravel's `actingAs($identity,
  * 'service')`) is kept until {@see forgetUser()}, across request changes too;
  * a bearer-resolved caller is re-resolved whenever the request instance changes.
+ *
+ * With a {@see Denylist} (`check_denylist`, off by default) a revoked token — or,
+ * failing closed, one with no `jti` — yields a null user too, exactly like the
+ * `jwt` guard's check.
  */
 final class ServiceGuard implements Guard
 {
@@ -40,6 +46,7 @@ final class ServiceGuard implements Guard
     public function __construct(
         private readonly ServiceTokenVerifier $verifier,
         private Request $request,
+        private readonly ?Denylist $denylist = null,
     ) {}
 
     public function user(): ?Authenticatable
@@ -58,7 +65,7 @@ final class ServiceGuard implements Guard
         }
 
         try {
-            $claims = $this->verifier->verify($token);
+            $claims = $this->verified($token);
         } catch (ServiceAuthMisconfigured $e) {
             // Surface misconfiguration as a 500 — never a silent 401.
             throw $e;
@@ -84,7 +91,7 @@ final class ServiceGuard implements Guard
         }
 
         try {
-            $this->verifier->verify($token);
+            $this->verified($token);
 
             return true;
         } catch (JwtException) {
@@ -135,5 +142,20 @@ final class ServiceGuard implements Guard
     public function payload(): ?Claims
     {
         return $this->payload;
+    }
+
+    /**
+     * Whether this guard refuses revoked tokens (`check_denylist`).
+     */
+    public function checksDenylist(): bool
+    {
+        return $this->denylist !== null;
+    }
+
+    private function verified(#[SensitiveParameter] string $token): Claims
+    {
+        $claims = $this->verifier->verify($token);
+
+        return $this->denylist === null ? $claims : RevocationCheck::assertActive($this->denylist, $claims);
     }
 }

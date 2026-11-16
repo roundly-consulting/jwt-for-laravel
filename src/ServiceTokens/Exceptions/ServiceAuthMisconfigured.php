@@ -45,6 +45,24 @@ final class ServiceAuthMisconfigured extends RuntimeException
         return new self("Service token auth is misconfigured: SERVICE_JWT_SECRETS has no entry for this service's own issuer [{$issuer}].");
     }
 
+    public static function invalidTtl(int $max): self
+    {
+        return new self("Service token auth is misconfigured: a per-call service token ttl must be a whole number of seconds from 1 to {$max} (jwt.service.max_ttl).");
+    }
+
+    /**
+     * `$reason` describes the problem; the subject itself is never echoed.
+     */
+    public static function invalidSubject(string $reason): self
+    {
+        return new self("Service token auth is misconfigured: the service token subject is invalid — {$reason}.");
+    }
+
+    public static function issuerLacksOptions(string $issuer): self
+    {
+        return new self("Service token auth is misconfigured: the bound service token issuer [{$issuer}] does not accept a ttl or subject; implement ServiceTokenIssuerWithOptions.");
+    }
+
     /**
      * @param  list<string>  $claims
      */

@@ -11,6 +11,7 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
 use RoundlyConsulting\Jwt\Denylist\Contracts\Denylist;
+use RoundlyConsulting\Jwt\Denylist\RevocationCheck;
 use RoundlyConsulting\Jwt\Events\TokenVerificationFailed;
 use RoundlyConsulting\Jwt\Exceptions\JwtMisconfigured;
 use RoundlyConsulting\Jwt\Facades\Jwt;
@@ -18,6 +19,7 @@ use RoundlyConsulting\Jwt\Jose\Claims;
 use RoundlyConsulting\Jwt\Jose\Exceptions\ClaimMismatch;
 use RoundlyConsulting\Jwt\Jose\Exceptions\JwtException;
 use RoundlyConsulting\Jwt\Jose\Exceptions\KeyLoadFailed;
+use RoundlyConsulting\Jwt\Jose\Exceptions\TokenRevoked;
 use RoundlyConsulting\Jwt\ServiceTokens\Services;
 use RoundlyConsulting\Jwt\Support\KeyRepository;
 use RoundlyConsulting\Jwt\Support\Settings;
@@ -87,12 +89,19 @@ class JwtManager
      * null keeps the configured `jwt.audience`. To verify for a guard's audience
      * use `guard($name)->verify($jwt)`.
      *
+     * `$checkDenylist` also refuses a revoked token ({@see TokenRevoked}) and, failing
+     * closed, one with no `jti` ({@see ClaimMismatch}). The default (false) is the
+     * unchanged signature/expiry/iss/aud check — the guard makes the denylist check
+     * on its own (`check_denylist`).
+     *
      * @throws JwtException
      */
-    public function verify(#[SensitiveParameter] string $jwt, ?string $audience = null): Claims
+    public function verify(#[SensitiveParameter] string $jwt, ?string $audience = null, bool $checkDenylist = false): Claims
     {
         try {
-            return $this->verifier()->verify($jwt, $audience);
+            $claims = $this->verifier()->verify($jwt, $audience);
+
+            return $checkDenylist ? RevocationCheck::assertActive($this->denylist(), $claims) : $claims;
         } catch (JwtException $e) {
             $this->events()?->dispatch(new TokenVerificationFailed($e->getMessage(), $e::class));
 

@@ -10,6 +10,7 @@ use Carbon\CarbonImmutable;
  * Dispatched after an HS256 service token is issued.
  *
  * Carries only non-sensitive metadata — never the token string or shared secret.
+ * `$subject` is the token's `sub` when it was issued with one, else null.
  */
 final readonly class ServiceTokenIssued
 {
@@ -18,5 +19,6 @@ final readonly class ServiceTokenIssued
         public ?string $audience,
         public string $jti,
         public CarbonImmutable $expiresAt,
+        public ?string $subject = null,
     ) {}
 }

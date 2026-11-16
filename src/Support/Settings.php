@@ -194,6 +194,19 @@ final class Settings
     }
 
     /**
+     * An optional switch: null when not set — absent, null or blank — (defer to the
+     * next level, never a blank read as `false`), a bool for an env-style spelling
+     * (`"false"`, `"0"`, `"off"`), and a {@see JwtMisconfigured} naming the key for
+     * anything else, so a typo never quietly falls back to the default.
+     *
+     * @throws JwtMisconfigured
+     */
+    public static function optionalBoolean(string $key, mixed $value): ?bool
+    {
+        return self::notSet($value) ? null : Config::for([$key => $value], JwtMisconfigured::class)->boolean($key);
+    }
+
+    /**
      * Absent, null or blank (`''` or whitespace): the key is not set, so its default
      * applies — a host's `KEY=` means the same as leaving the key out.
      */

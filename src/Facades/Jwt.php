@@ -25,7 +25,7 @@ use RoundlyConsulting\PackageToolkit\Concerns\RedactsSensitiveArguments;
  * @method static IssuedToken mint(string $subject, Scope|string $scope, int $ttl, array<string, mixed> $extraClaims = [], ?string $audience = null)
  * @method static IssuedToken mintChallengeToken(string $subject, array<string, mixed> $extraClaims = [])
  * @method static IssuedToken mintEmailVerifyToken(string $subject, string $email)
- * @method static Claims verify(string $jwt, ?string $audience = null)
+ * @method static Claims verify(string $jwt, ?string $audience = null, bool $checkDenylist = false)
  * @method static GuardTokens guard(string $name)
  * @method static Services services()
  * @method static Denylist denylist()

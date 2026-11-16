@@ -56,13 +56,14 @@ final readonly class GuardTokens
 
     /**
      * Verify a user token against this guard's audience (signature, expiry, pinned
-     * issuer), dispatching `TokenVerificationFailed` on failure.
+     * issuer), dispatching `TokenVerificationFailed` on failure. `$checkDenylist`
+     * also refuses a revoked token, as `Jwt::verify()` does.
      *
      * @throws JwtException
      */
-    public function verify(#[SensitiveParameter] string $jwt): Claims
+    public function verify(#[SensitiveParameter] string $jwt, bool $checkDenylist = false): Claims
     {
-        return $this->manager->verify($jwt, $this->settings->audience);
+        return $this->manager->verify($jwt, $this->settings->audience, $checkDenylist);
     }
 
     /**

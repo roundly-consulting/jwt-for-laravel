@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Jwt\Testing;
 
+use DateInterval;
 use Illuminate\Contracts\Container\Container;
 use RoundlyConsulting\Jwt\ServiceTokens\Services;
 use RoundlyConsulting\Jwt\UserTokens\IssuedToken;
@@ -24,9 +25,13 @@ final readonly class RecordingServices extends Services
     /**
      * @param  array<string, mixed>  $claims
      */
-    public function issue(?string $audience = null, array $claims = []): IssuedToken
-    {
-        $issued = parent::issue($audience, $claims);
+    public function issue(
+        ?string $audience = null,
+        array $claims = [],
+        int|DateInterval|null $ttl = null,
+        ?string $subject = null,
+    ): IssuedToken {
+        $issued = parent::issue($audience, $claims, $ttl, $subject);
 
         $this->fake->recordServiceToken($issued);
 
