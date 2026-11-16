@@ -6,6 +6,32 @@ All notable changes to `jwt-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+## 2.1.0 - 2026-11-16
+
+### Added
+
+- Per-call options for service tokens: `Jwt::services()->issue(..., ttl: 60, subject: 'agent-run:1')`.
+  `ttl` takes seconds or a `DateInterval`/`CarbonInterval`, from 1 up to the new
+  `jwt.service.max_ttl` (`JWT_SERVICE_MAX_TTL`, default 3600). `subject` sets `sub` (non-empty,
+  at most 255 bytes, no control characters or surrounding whitespace). `sub` as a raw claim is
+  still refused. `ServiceTokenIssued` now carries `$subject`, and `ServiceIdentity::subject()`
+  reads it.
+- `ServiceTokenIssuerWithOptions` contract. `ttl`/`subject` need a bound issuer implementing it;
+  a host issuer without it is refused instead of silently dropping the options.
+- `checkDenylist: true` on `Jwt::verify()`, `Jwt::guard()->verify()` and `Jwt::services()->verify()`.
+  It refuses a revoked token with the new `TokenRevoked` exception (`ERROR_CODE = 'token_revoked'`,
+  message in English and Slovak), and a token with no `jti` with `ClaimMismatch`. Without it,
+  `verify()` works as before.
+- Opt-in revocation check on the `service-jwt` guard: `jwt.service.check_denylist`
+  (`JWT_SERVICE_CHECK_DENYLIST`, default off) or `check_denylist` per guard.
+- Translations (`jwt::errors`, en + sk), publishable with `--tag=jwt-translations`.
+
+### Security
+
+- A service token's `sub` never authenticates as a user. The `jwt` guard pins RS256 and
+  `scope=access`, so it refuses an HS256 service token before reading `sub`. Tests now pin this
+  for provider and claims mode.
+
 ## 2.0.0 - 2026-11-07
 
 ### Changed
